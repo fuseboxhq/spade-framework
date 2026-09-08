@@ -3,6 +3,18 @@ set -euo pipefail
 
 # Exercise every supported historical start plus fail-closed lifecycle states.
 
+file_digest() {
+    # Arguments: regular file path. Prints one SHA-256 digest.
+    if [ -x /usr/bin/shasum ]; then
+        /usr/bin/shasum -a 256 "$1" | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        echo "No SHA-256 implementation is available" >&2
+        return 1
+    fi
+}
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIFECYCLE="$REPO_ROOT/bin/spade-lifecycle"
 PUBLISHED="$(awk '/^published_versions:/{print $2; exit}' "$REPO_ROOT/src/CAPABILITIES.md")"
@@ -53,7 +65,7 @@ while IFS='|' read -r version release_commit; do
     mkdir -p "$consumer"
     make_consumer "$consumer" "$version"
     before_intent=""
-    [ ! -f "$consumer/INTENT.md" ] || before_intent="$(/usr/bin/shasum -a 256 "$consumer/INTENT.md" | awk '{print $1}')"
+    [ ! -f "$consumer/INTENT.md" ] || before_intent="$(file_digest "$consumer/INTENT.md")"
     if "$LIFECYCLE" migrate --install-root "$REPO_ROOT" --consumer-root "$consumer" --tracker-mode local >/dev/null; then
         actual="$(sed -n 's/^spade_version=//p' "$consumer/.spade/version")"
         if [ "$actual" = "$CURRENT" ]; then pass "historical start $version reaches $CURRENT"; else fail "historical start $version ended at $actual"; fi
@@ -69,7 +81,7 @@ while IFS='|' read -r version release_commit; do
     if ! grep -q '^consumer-owned prefix$' "$consumer/AGENTS.md" || ! grep -q '^consumer-owned suffix$' "$consumer/AGENTS.md"; then
         fail "historical start $version preserves consumer-owned agent content"
     fi
-    if [ -n "$before_intent" ] && [ "$(/usr/bin/shasum -a 256 "$consumer/INTENT.md" | awk '{print $1}')" != "$before_intent" ]; then
+    if [ -n "$before_intent" ] && [ "$(file_digest "$consumer/INTENT.md")" != "$before_intent" ]; then
         fail "historical start $version preserves existing human intent bytes"
     fi
 done < "$HISTORICAL"
@@ -160,7 +172,7 @@ resumable="$tmp/resumable"
 mkdir -p "$resumable"
 make_consumer "$resumable" 1.1.0
 printf 'spade_version=1.1.1\n' > "$resumable/.spade/version"
-fingerprint="$(/usr/bin/shasum -a 256 "$resumable/.spade/version" | awk '{print $1}')"
+fingerprint="$(file_digest "$resumable/.spade/version")"
 {
     printf '%s|%s|%s\n' '1.1.0' "$CURRENT" '.spade/version'
     printf '%s|%s\n' '.spade/version' "$fingerprint"
