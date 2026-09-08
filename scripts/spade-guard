@@ -1,0 +1,521 @@
+#!/usr/bin/env bash
+set -u
+
+# SPADE mechanical guard.
+#
+# Claude Code runs this as a command hook. It reads one hook event as JSON on
+# stdin and either stays silent (allow) or prints a PreToolUse deny decision.
+# The rules it enforces are defined in docs/FRAMEWORK.md § Mechanical guards;
+# this script is the deterministic check, not the definition.
+#
+# Every guard is inert unless the project root holds .spade/config, so a plugin
+# install does not change behaviour in repositories that do not use SPADE.
+#
+# Exit codes: 0 always (decisions travel as JSON on stdout), except 2 when jq
+# is missing inside a SPADE repository, which blocks the call and names the
+# missing tool on stderr.
+
+# Always drain stdin first so an inert exit never leaves the host with a broken pipe.
+input=$(cat)
+project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+case "$project_dir" in /*) ;; *) project_dir="$PWD/$project_dir" ;; esac
+config="$project_dir/.spade/config"
+[ -f "$config" ] || exit 0
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "spade-guard: jq is required for SPADE guards and is not installed; install jq or set disableAllHooks" >&2
+    exit 2
+fi
+
+event=$(printf '%s' "$input" | jq -r '.hook_event_name // ""')
+tool=$(printf '%s' "$input" | jq -r '.tool_name // ""')
+session=$(printf '%s' "$input" | jq -r '.session_id // ""')
+guard_dir="$project_dir/.spade/guard"
+session_dir="$guard_dir/${session:-unknown}"
+
+deny() {
+    # Arguments: reason. Prints one PreToolUse deny decision and exits 0.
+    jq -cn --arg reason "$1" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
+    exit 0
+}
+
+config_value() {
+    # Arguments: dotted key path (up to three levels) read from .spade/config.
+    # Prints the trimmed scalar or nothing. Comments and quotes are stripped.
+    awk -v path="$1" '
+        BEGIN { n = split(path, want, "."); depth = 0 }
+        /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+        {
+            match($0, /^[[:space:]]*/); indent = RLENGTH / 2
+            line = $0; sub(/^[[:space:]]*/, "", line); sub(/[[:space:]]*#.*$/, "", line)
+            key = line; sub(/:.*$/, "", key)
+            value = line; sub(/^[^:]*:[[:space:]]*/, "", value)
+            gsub(/^["'\'']|["'\'']$/, "", value)
+            if (indent < depth) depth = indent
+            if (indent == depth && key == want[depth + 1]) {
+                if (depth + 1 == n) { print value; exit }
+                depth++
+            }
+        }
+    ' "$config"
+}
+
+is_true() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        true|yes|on|1) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+normalize_abs() {
+    # Arguments: absolute path. Prints it lexically normalized: no empty or `.`
+    # segments, every `..` resolved against the segment before it.
+    old_ifs="$IFS"; IFS='/'
+    set -- $1
+    IFS="$old_ifs"
+    normalized=""
+    for segment in "$@"; do
+        case "$segment" in
+            ""|.) ;;
+            ..) normalized="${normalized%/*}" ;;
+            *) normalized="$normalized/$segment" ;;
+        esac
+    done
+    printf '%s\n' "${normalized:-/}"
+}
+
+relative_path() {
+    # Arguments: absolute or relative path. Prints it normalized and relative to
+    # the project root, so `a/../.spade/config` and
+    # `$project/../$project/.spade/config` both classify as `.spade/config`.
+    # A path that escapes the project root is printed with a leading `../`.
+    path="$1"
+    case "$path" in /*) ;; *) path="$project_dir/$path" ;; esac
+    path=$(normalize_abs "$path")
+    case "$path" in
+        "$project_dir"/*) printf '%s\n' "${path#"$project_dir"/}" ;;
+        "$project_dir") printf '.\n' ;;
+        *) printf '../%s\n' "${path#/}" ;;
+    esac
+}
+
+project_dir=$(normalize_abs "$project_dir")
+
+path_words() {
+    # Arguments: project-relative path. Prints its words, lowercased, separated
+    # by single spaces and surrounded by spaces, so a term can be matched as a
+    # whole word instead of as a substring. `access-token.ts` yields
+    # ` access token ts `, so it matches the term `token`, while `tokenizer.ts`
+    # yields ` tokenizer ts `, which does not. A camelCase name is split first,
+    # at each lower-to-upper boundary and before an acronym runs into a word, so
+    # `accessToken.ts` and `SSHKeyLoader.ts` both separate; those conventions are
+    # normal in the stacks this runs against.
+    printf ' %s ' "$(printf '%s' "$1" \
+        | sed -e 's/\([a-z0-9]\)\([A-Z]\)/\1 \2/g' -e 's/\([A-Z]\)\([A-Z][a-z]\)/\1 \2/g' \
+        | tr '[:upper:]' '[:lower:]' \
+        | tr -c 'a-z0-9' ' ' \
+        | tr -s ' ' \
+        | sed 's/^ *//; s/ *$//')"
+}
+
+has_word() {
+    # Arguments: word list, then terms. Succeeds when any term is a whole word.
+    subject="$1"; shift
+    for term in "$@"; do
+        case "$subject" in *" $term "*) return 0 ;; esac
+    done
+    return 1
+}
+
+has_word_prefix() {
+    # Arguments: word list, then prefixes. Succeeds when a word starts with one,
+    # so `migrat` covers migration and migrations without matching a word that
+    # merely contains it.
+    subject="$1"; shift
+    for term in "$@"; do
+        case "$subject" in *" $term"*) return 0 ;; esac
+    done
+    return 1
+}
+
+is_framework_repo() {
+    # The framework's own layout puts skills and the capability manifest under
+    # src/. Elsewhere `src/` is application code, so those paths are governance
+    # only here.
+    [ -f "$project_dir/src/CAPABILITIES.md" ] && [ -d "$project_dir/src/skills" ]
+}
+
+protected_category() {
+    # Arguments: project-relative path, mode (quick|unhinged|deliver).
+    # Prints the first matching category name or nothing.
+    # The category list mirrors docs/FRAMEWORK.md § Security-sensitive path
+    # surface, which stays the definition; this is a path-shaped approximation
+    # of it. Deliver mode checks only the three hard-halt categories.
+    lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    mode="$2"
+    words=$(path_words "$1")
+
+    case "$lower" in
+        .env|.env.*|*/.env|*/.env.*|*.env|*.pem|*.key|*.p12|*.pfx|*.jks|*.crt|*.cer|*.kubeconfig)
+            echo "secrets and credentials"; return ;;
+        id_rsa*|id_dsa*|id_ecdsa*|id_ed25519*|*/id_rsa*|*/id_dsa*|*/id_ecdsa*|*/id_ed25519*)
+            echo "secrets and credentials"; return ;;
+        .npmrc|.netrc|.pgpass|.htpasswd|kubeconfig|authorized_keys|*/.npmrc|*/.netrc|*/.pgpass|*/.htpasswd|*/kubeconfig|*/authorized_keys)
+            echo "secrets and credentials"; return ;;
+        service-account*|*/service-account*|*serviceaccount*)
+            echo "secrets and credentials"; return ;;
+    esac
+    if has_word "$words" secret secrets credential credentials token tokens keystore keystores keyring keytab; then
+        echo "secrets and credentials"; return
+    fi
+    # `key` alone is ambiguous: primaryKey, sortKey, and rootKeys are ordinary
+    # names for database and storage identifiers. Treat it as a credential only
+    # beside a word that is itself credential-specific, which is why words like
+    # session, access, auth, and service are deliberately absent: they are
+    # ordinary path vocabulary, and a `service` directory holding
+    # translationKeys.ts is not a credential. Where those words matter they
+    # already carry their own category, and a service-account file is named
+    # directly above.
+    if has_word "$words" key keys && has_word "$words" api private signing sign ssh gpg pgp encryption master vault jwt oauth cert certs tls ssl; then
+        echo "secrets and credentials"; return
+    fi
+    if has_word "$words" production prod backfill backfills; then
+        echo "production data"; return
+    fi
+    case "$lower" in
+        .spade/config|.spade/handoff.local|.claude/settings.json|.claude/settings.local.json|hooks/hooks.json|src/hooks/hooks.json|bin/spade-guard|scripts/spade-guard|plugins/spade-framework/scripts/spade-guard|*/.claude/settings.json|*/.claude/settings.local.json|*/hooks/hooks.json|*/bin/spade-guard|*/scripts/spade-guard)
+            echo "permission widening"; return ;;
+    esac
+
+    [ "$mode" = deliver ] && return
+
+    if has_word "$words" auth authentication authorisation authorization login logins session sessions identity identities oauth sso; then
+        echo "authentication and identity"; return
+    fi
+    if has_word_prefix "$words" passw; then
+        echo "authentication and identity"; return
+    fi
+    if has_word "$words" crypto cryptography cipher ciphers hash hashes hmac kms jwt cert certs certificate certificates x509 pki tls ssl mtls; then
+        echo "cryptography"; return
+    fi
+    if has_word_prefix "$words" encrypt decrypt; then
+        echo "cryptography"; return
+    fi
+    if has_word "$words" rbac permission permissions iam acl acls role roles policy policies; then
+        echo "permissions and IAM"; return
+    fi
+    case "$lower" in
+        *.sql|*.prisma|*.graphql) echo "schemas"; return ;;
+    esac
+    if has_word "$words" schema schemas openapi swagger; then
+        echo "schemas"; return
+    fi
+    if has_word_prefix "$words" migrat; then
+        echo "migrations and backfills"; return
+    fi
+    case "$lower" in
+        .github/workflows/*|.github/actions/*|.gitlab-ci*|jenkinsfile*|.circleci/*|azure-pipelines*|bitbucket-pipelines*)
+            echo "CI"; return ;;
+    esac
+    case "$lower" in
+        changelog*|.spade/version|version|version.txt|package.json|pyproject.toml|cargo.toml|go.mod|gemfile|*.podspec)
+            echo "release"; return ;;
+    esac
+    if has_word "$words" release releases; then
+        echo "release"; return
+    fi
+    case "$lower" in
+        dockerfile|dockerfile.*|*/dockerfile|*/dockerfile.*|docker-compose*|*/docker-compose*|procfile|*/procfile)
+            echo "deploy"; return ;;
+    esac
+    if has_word_prefix "$words" deploy; then
+        echo "deploy"; return
+    fi
+    if has_word "$words" rollout rollouts; then
+        echo "deploy"; return
+    fi
+    case "$lower" in
+        *.tf|*.tfvars|*.bicep) echo "infrastructure"; return ;;
+    esac
+    if has_word "$words" terraform pulumi cloudformation cdk; then
+        echo "infrastructure"; return
+    fi
+    if has_word "$words" k8s kubernetes kustomization; then
+        echo "Kubernetes"; return
+    fi
+    case "$lower" in
+        chart.yaml|*/chart.yaml|values.yaml|*/values.yaml|values-*.yaml|*/values-*.yaml|values.*.yaml|*/values.*.yaml)
+            echo "Helm"; return ;;
+    esac
+    if has_word "$words" helm; then
+        echo "Helm"; return
+    fi
+    case "$lower" in
+        agents.md|claude.md|patterns.md|anti-patterns.md|intent.md|docs/framework.md|.spade/config|.spade/handoff.local|.spade/version)
+            echo "framework governance, execution, and fetch surfaces"; return ;;
+    esac
+    if is_framework_repo; then
+        case "$lower" in
+            src/*|skills/*|agents/*|plugins/*|fragments/*|migrations/*|hooks/*|bin/*|scripts/spade-*|.claude/skills/*|.claude/agents/*|.codex/*|setup|setup.ps1)
+                echo "framework governance, execution, and fetch surfaces"; return ;;
+        esac
+    fi
+}
+
+guard_protected_path() {
+    mode_file="$session_dir/mode"
+    [ -f "$mode_file" ] || return 0
+    mode=$(head -n 1 "$mode_file" | tr -d '[:space:]')
+    case "$mode" in quick|unhinged|deliver) ;; *) return 0 ;; esac
+    path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""')
+    [ -n "$path" ] || return 0
+    rel=$(relative_path "$path")
+    case "$rel" in ../*) deny "SPADE guard: '$path' resolves outside the project root; guarded modes only write inside the repository." ;; esac
+    category=$(protected_category "$rel" "$mode")
+    [ -n "$category" ] || return 0
+    case "$mode" in
+        deliver) deny "SPADE guard: '$rel' is a protected path ($category). Deliver never edits secrets, production data, or its own permissions unattended. Halt and surface this to the human (tripwire #6)." ;;
+        *) deny "SPADE guard: '$rel' is a protected path ($category) and /spade-$mode may not touch it. This is not $mode-eligible; use the full SPADE loop." ;;
+    esac
+}
+
+
+normalized_segments() {
+    # Reads the raw Bash command on stdin and prints one line per pipeline
+    # segment, tokens separated by tabs.
+    #
+    # Quoting is honoured, including a backslash escape inside a double-quoted
+    # string, so a message such as -m "say \"hi\"" cannot close its quote early
+    # and swallow whatever follows the next separator. A quoted argument stays a
+    # single token, so its contents can never read as flags.
+    #
+    # A command substitution is lifted out and queued as its own segment, so the
+    # command around it stays intact and the commands inside it are still
+    # examined. The substitution leaves a placeholder token behind: the guard
+    # cannot know what a substitution will expand to, so a check that needs a
+    # literal value fails rather than trusting it. Text inside single quotes is
+    # left alone, because the shell performs no substitution there and prose
+    # that merely mentions one must not be read as a command. An apostrophe
+    # inside a double-quoted string is ordinary text, not a quote, so a
+    # contraction cannot hide a substitution that follows it.
+    #
+    # A literal tab inside a token is folded to a space so it cannot forge a
+    # field boundary downstream.
+    awk '
+        function emit(line,   i, c, cur, has, quote, out, count, len) {
+            cur = ""; has = 0; quote = ""; out = ""; count = 0
+            len = length(line)
+            for (i = 1; i <= len; i++) {
+                c = substr(line, i, 1)
+                if (c == "\t") c = " "
+                if (quote != "") {
+                    if (quote == "\"" && c == "\\") {
+                        i++
+                        if (i <= len) { cur = cur substr(line, i, 1); has = 1 }
+                        continue
+                    }
+                    if (c == quote) quote = ""
+                    else { cur = cur c; has = 1 }
+                    continue
+                }
+                if (c == "$" && (substr(line, i + 1, 1) == "\047" || substr(line, i + 1, 1) == "\"")) continue
+                if (c == "\047" || c == "\"") { quote = c; has = 1; continue }
+                if (c == "\\") { i++; if (i <= len) { cur = cur substr(line, i, 1); has = 1 } continue }
+                if (c == ";" || c == "|" || c == "&" || c == "(" || c == ")" || c == "`") {
+                    if (has) { out = out (count++ == 0 ? "" : "\t") cur; cur = ""; has = 0 }
+                    if (count > 0) print out
+                    out = ""; count = 0
+                    continue
+                }
+                if (c == " ") {
+                    if (has) { out = out (count++ == 0 ? "" : "\t") cur; cur = ""; has = 0 }
+                    continue
+                }
+                cur = cur c
+                has = 1
+            }
+            if (has) out = out (count++ == 0 ? "" : "\t") cur
+            if (count > 0) print out
+        }
+        {
+            queued = 0
+            queue[++queued] = $0
+            taken = 0
+            while (taken < queued) {
+                line = queue[++taken]
+                out = ""
+                i = 1
+                q = ""
+                len = length(line)
+                while (i <= len) {
+                    c = substr(line, i, 1)
+                    if (q == "\047") {
+                        if (c == "\047") q = ""
+                        out = out c
+                        i++
+                        continue
+                    }
+                    if (c == "\\") { out = out c; i++; if (i <= len) { out = out substr(line, i, 1); i++ } continue }
+                    if (q == "\"") {
+                        if (c == "\"") q = ""
+                        else if (c == "$" && substr(line, i + 1, 1) == "(") { }
+                        if (c != "$" || substr(line, i + 1, 1) != "(") { out = out c; i++; continue }
+                    } else {
+                        if (c == "\047" || c == "\"") { q = c; out = out c; i++; continue }
+                    }
+                    if (c == "$" && substr(line, i + 1, 1) == "(") {
+                        depth = 1
+                        j = i + 2
+                        inner = ""
+                        while (j <= len) {
+                            d = substr(line, j, 1)
+                            if (d == "(") depth++
+                            else if (d == ")") { depth--; if (depth == 0) break }
+                            inner = inner d
+                            j++
+                        }
+                        queue[++queued] = inner
+                        out = out "\002"
+                        i = j + 1
+                        continue
+                    }
+                    out = out c
+                    i++
+                }
+                emit(out)
+            }
+        }
+    '
+}
+
+git_add_operands() {
+    # Reads normalized segments and prints `deny` when one runs `git add` with a
+    # stage-everything operand. It scans every token of the segment rather than
+    # guessing which one is the command word, so environment assignments and
+    # wrapper commands such as env, sudo, or xargs cannot hide the invocation by
+    # sitting in front of it, whatever flags those wrappers take.
+    awk -F'\t' '
+        {
+            for (i = 1; i <= NF; i++) {
+                if ($i != "git") continue
+                j = i + 1
+                while (j <= NF && substr($j, 1, 1) == "-") {
+                    if ($j == "-C" || $j == "-c" || $j == "--git-dir" || $j == "--work-tree") j++
+                    j++
+                }
+                if (j > NF || $j != "add") continue
+                for (k = j + 1; k <= NF; k++) {
+                    if ($k == "-A" || $k == "--all" || $k == "." || $k == "--no-ignore-removal") {
+                        print "deny"
+                        exit
+                    }
+                }
+            }
+        }
+    '
+}
+
+merge_segment() {
+    # Reads normalized segments and prints the merge invocation from its command
+    # word onward, tab separated, or nothing when the command merges nothing.
+    # Scans every token for the same reason git_add_operands does.
+    awk -F'\t' '
+        {
+            for (i = 1; i <= NF; i++) {
+                hit = 0
+                if ($i == "gh" && $(i + 1) == "pr" && $(i + 2) == "merge") hit = 1
+                else if ($i == "glab" && $(i + 1) == "mr" && $(i + 2) == "merge") hit = 1
+                else if ($i == "gh" && $(i + 1) == "api") {
+                    for (k = i + 2; k <= NF; k++) if ($k ~ /\/merge$/ || $k ~ /\/pulls\/[0-9]+\/merge/) hit = 1
+                }
+                if (!hit) continue
+                out = $i
+                for (k = i + 1; k <= NF; k++) out = out "\t" $k
+                print out
+                exit
+            }
+        }
+    '
+}
+
+guard_stage_all() {
+    is_true "$(config_value guards.deny_stage_all)" || return 0
+    [ "$(printf '%s' "$segments" | git_add_operands)" = deny ] || return 0
+    deny "SPADE guard: git add -A, --all, and git add . are disabled in this repository (guards.deny_stage_all). Stage the exact paths you changed."
+}
+
+rollup_green() {
+    # Arguments: gh pr view JSON. Returns 0 when every check is SUCCESS or SKIPPED and at least one exists.
+    printf '%s' "$1" | jq -e '
+        (.statusCheckRollup // []) as $checks
+        | ($checks | length) > 0
+        and all($checks[]; ((.conclusion // .state // "") | ascii_upcase) as $c | $c == "SUCCESS" or $c == "SKIPPED")
+    ' >/dev/null 2>&1
+}
+
+guard_merge() {
+    merge=$(printf '%s' "$segments" | merge_segment)
+    [ -n "$merge" ] || return 0
+    policy=$(config_value autonomy.deliver.merge)
+    case "$policy" in
+        on-green) ;;
+        *) deny "SPADE guard: merge policy is 'human' (autonomy.deliver.merge). The human operates the merge, or sets the policy to on-green in .spade/config themselves." ;;
+    esac
+    kind=$(printf '%s' "$merge" | awk -F'\t' '{ if ($1 == "gh" && $2 == "pr" && $3 == "merge") print "gh-pr"; else print "other" }')
+    [ "$kind" = gh-pr ] \
+        || deny "SPADE guard: on-green merges are verified through gh pr merge only. Use gh pr merge so the guard can check the PR."
+    number=$(printf '%s' "$merge" | awk -F'\t' '{ for (k = 4; k <= NF; k++) if (substr($k, 1, 1) != "-") { sub(/.*\/pull\//, "", $k); print $k; exit } }')
+    if [ -z "$number" ]; then
+        number=$(cd "$project_dir" && gh pr view --json number -q .number 2>/dev/null)
+    fi
+    [ -n "$number" ] || deny "SPADE guard: could not resolve which PR this merge targets. Name the PR number explicitly."
+    view=$(cd "$project_dir" && gh pr view "$number" --json isDraft,mergeable,headRefOid,statusCheckRollup 2>/dev/null)
+    [ -n "$view" ] || deny "SPADE guard: gh pr view $number returned nothing, so the PR state is unknown. Unknown state denies."
+    is_draft=$(printf '%s' "$view" | jq -r '.isDraft')
+    mergeable=$(printf '%s' "$view" | jq -r '.mergeable')
+    head_sha=$(printf '%s' "$view" | jq -r '.headRefOid')
+    [ "$is_draft" = false ] || deny "SPADE guard: PR $number is a draft. Drafts are never merged unattended."
+    [ "$mergeable" = MERGEABLE ] || deny "SPADE guard: PR $number reports mergeable=$mergeable. Only MERGEABLE merges."
+    rollup_green "$view" || deny "SPADE guard: PR $number has no checks or a check that is not SUCCESS or SKIPPED. On-green needs at least one green check and no other state."
+    reviewed_file="$guard_dir/reviewed-head-$number"
+    [ -f "$reviewed_file" ] || deny "SPADE guard: no recorded Evaluate for PR $number (.spade/guard/reviewed-head-$number). Run the two-axis Delivery Review and Evaluate on the current head first."
+    reviewed=$(head -n 1 "$reviewed_file" | awk '{print $1}')
+    verdict=$(head -n 1 "$reviewed_file" | awk '{print toupper($2)}')
+    [ "$reviewed" = "$head_sha" ] || deny "SPADE guard: PR $number head $head_sha differs from the reviewed head $reviewed. Rerun Delivery Review and Evaluate on the new head."
+    [ "$verdict" = PASS ] || deny "SPADE guard: the recorded Evaluate for PR $number at $reviewed is '${verdict:-none}', not PASS. Only a PASS verdict on the current head merges under on-green."
+    pinned=$(printf '%s' "$merge" | awk -F'\t' -v sha="$head_sha" '
+        {
+            for (k = 4; k <= NF; k++) {
+                if ($k == "--match-head-commit" && $(k + 1) == sha) { print "ok"; exit }
+                if ($k == "--match-head-commit=" sha) { print "ok"; exit }
+            }
+        }
+    ')
+    [ "$pinned" = ok ] \
+        || deny "SPADE guard: pin the merge to the reviewed head with a literal SHA the guard can read: gh pr merge $number --match-head-commit $head_sha ..."
+}
+
+case "$event" in
+    SessionStart)
+        mkdir -p "$session_dir"
+        date -u '+%Y-%m-%dT%H:%M:%SZ' > "$session_dir/live"
+        exit 0
+        ;;
+    SessionEnd)
+        [ -n "$session" ] && rm -rf "$session_dir"
+        exit 0
+        ;;
+    PreToolUse) ;;
+    *) exit 0 ;;
+esac
+
+case "$tool" in
+    Edit|Write|MultiEdit|NotebookEdit)
+        guard_protected_path ;;
+    Bash)
+        command=$(printf '%s' "$input" | jq -r '.tool_input.command // ""')
+        segments=$(printf '%s' "$command" | normalized_segments)
+        guard_stage_all
+        guard_merge ;;
+esac
+exit 0

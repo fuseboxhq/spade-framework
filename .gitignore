@@ -1,0 +1,59 @@
+.DS_Store
+*.swp
+*.swo
+*~
+.env
+.env.local
+node_modules/
+.state/
+
+# Local gstack tooling state (headless browser / QA); not part of the
+# framework and never committed.
+.gstack/
+
+# In consumer repos, `/spade-onboard` injects committed copies of the
+# framework's docs and examples under `.spade/docs/` and `.spade/examples/`.
+# In THIS repo (the framework itself) the canonical copies under `docs/`
+# and `examples/` are the source of truth, so we ignore any residual
+# `.spade/docs/` or `.spade/examples/` that a local pre-guard onboarding
+# run may have created. Bundle A's self-onboard guard prevents this
+# going forward; this is belt-and-braces.
+.spade/docs/
+.spade/examples/
+
+# Private learnings are captured by `/spade-learn` when the human
+# classifies an entry as NOT public-safe. They stay on local disk for
+# the team but must never be committed — they may reference internal
+# systems, credentials paths, or security details that should not leak
+# into public forks. See .claude/skills/spade-learn/SKILL.md.
+.spade/learnings/private/
+
+# HTML renderings of Scopes and Plans are a regeneratable read-only view
+# produced by `bin/spade-render` (v1.6+). The Markdown is canonical; the
+# `.html` siblings need not be committed. See docs/FRAMEWORK.md §HTML Rendering.
+.spade/**/*.html
+
+# Panel-review reports written by `/spade-review` (v2.0.0+). Each run
+# persists its full report to `.spade/reviews/<slug>-<date>.md` as a
+# local audit artefact. They can carry repository and architectural
+# detail and are not committed — the inline digest is the shareable
+# view. See .claude/skills/spade-review/SKILL.md § Presenting the Report.
+.spade/reviews/
+
+# Machine-local handoff config written by `/spade-onboard` — holds the
+# terminal-emulator choice for `/spade-handoff`, which is specific to the
+# developer's machine (one teammate uses iTerm2, another Terminal.app).
+# The committed `.spade/config` carries the shared handoff settings; this
+# file never is. See .claude/skills/spade-handoff/SKILL.md.
+.spade/handoff.local
+
+# Scratch dirs created in the repo root by tests/handoff-launch.sh (kept
+# inside the repo so sandboxed runs work without $HOME write access). The
+# EXIT trap removes them; this guards against an interrupted run leaving
+# one behind.
+.spade-handoff-test.*/
+
+# Session-scoped guard markers written by bin/spade-guard (SessionStart) and
+# the SPADE skills (mode, reviewed-head). Machine-local; see docs/FRAMEWORK.md
+# § Mechanical guards.
+.spade/guard/

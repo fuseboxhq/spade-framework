@@ -1,0 +1,1117 @@
+#!/usr/bin/env bash
+set -eu
+
+# Diagnose a SPADE installation or apply explicit consumer migration units.
+# The helper is Bash 3.2 compatible and parses only flat, allowlisted data.
+# Exit codes: 0 healthy/success, 1 drift or migration failure, 2 unsupported input.
+
+PROG="spade-lifecycle"
+ISSUES=0
+UNSUPPORTED=0
+
+usage() {
+    # Contract: print the complete bounded command interface.
+    cat >&2 <<EOF
+Usage:
+  $PROG diagnose --install-root <dir> [--consumer-root <dir>] [--host <auto|claude|codex>]
+  $PROG migrate --install-root <dir> --consumer-root <dir> [--to <version>] [--tracker-mode <linear|local|hybrid>]
+  $PROG advance --install-root <clone> --approved-sha <commit>
+EOF
+}
+
+die() {
+    # Contract: print one error and terminate with the supplied status.
+    echo "$PROG: $1" >&2
+    exit "${2:-1}"
+}
+
+safe_value() {
+    # Contract: render one value as a single control-free diagnostic field.
+    printf '%s' "$1" | tr '\000-\037\177' ' ' | sed 's/|/%7C/g; s/[[:space:]][[:space:]]*/ /g'
+}
+
+redact_url() {
+    # Contract: remove URL userinfo before a remote identity reaches output.
+    printf '%s' "$1" | sed -E 's#^([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@]+@#\1[redacted]@#; s#^([^/@:]+)@#[redacted]@#; s#[?#].*$#[redacted]#'
+}
+
+finding() {
+    # Contract: emit one stable finding and count non-OK severities as drift.
+    severity="$1"
+    check="$2"
+    expected=$(safe_value "$3")
+    observed=$(safe_value "$4")
+    remediation=$(safe_value "$5")
+    printf '%s|%s|expected=%s|observed=%s|remediation=%s\n' "$severity" "$check" "$expected" "$observed" "$remediation"
+    [ "$severity" = "OK" ] || ISSUES=$((ISSUES + 1))
+}
+
+frontmatter_value() {
+    # Contract: print one unique flat manifest value or fail unsupported.
+    key="$1"
+    file="$2"
+    value=$(awk -v key="$key" '
+        NR == 1 && $0 == "---" { in_fm=1; next }
+        in_fm && $0 == "---" { exit }
+        in_fm && index($0, key ":") == 1 { sub("^[^:]+:[[:space:]]*", ""); print }
+    ' "$file")
+    [ -n "$value" ] || die "manifest field is missing: $key" 2
+    [ "$(printf '%s\n' "$value" | wc -l | tr -d ' ')" = "1" ] || die "manifest field is duplicated: $key" 2
+    printf '%s\n' "$value"
+}
+
+manifest_path() {
+    # Contract: locate the canonical capability manifest below one install root.
+    root="$1"
+    if [ -f "$root/src/CAPABILITIES.md" ] && [ ! -L "$root/src/CAPABILITIES.md" ]; then
+        printf '%s\n' "$root/src/CAPABILITIES.md"
+    elif [ -f "$root/CAPABILITIES.md" ] && [ ! -L "$root/CAPABILITIES.md" ]; then
+        printf '%s\n' "$root/CAPABILITIES.md"
+    else
+        die "no regular capability manifest below install root" 2
+    fi
+}
+
+validate_version() {
+    # Contract: accept only an exact semantic release version.
+    printf '%s' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die "unsupported version: $1" 2
+}
+
+validate_root() {
+    # Contract: require a real, non-symlink directory for a lifecycle root.
+    label="$1"
+    root="$2"
+    [ -d "$root" ] && [ ! -L "$root" ] || die "$label must be a non-symlink directory: $root" 2
+}
+
+lifecycle_state_path() {
+    # Contract: resolve one worktree-local lifecycle record below the Git directory.
+    local consumer="$1"
+    local name="$2"
+    local git_dir
+    git_dir=$(git -C "$consumer" rev-parse --git-dir 2>/dev/null) || die "consumer Git directory cannot be resolved" 2
+    case "$git_dir" in /*) : ;; *) git_dir="$consumer/$git_dir" ;; esac
+    [ -d "$git_dir" ] && [ ! -L "$git_dir" ] || die "consumer Git directory is unsafe" 2
+    printf '%s/spade-lifecycle-%s\n' "$git_dir" "$name"
+}
+
+validate_consumer_path() {
+    # Contract: reject symlinks on every existing component of one relative path.
+    local root="$1"
+    local relative="$2"
+    local current component
+    case "$relative" in ""|/*|*..*|*\\*) die "unsafe migration path: $relative" 2 ;; esac
+    current="$root"
+    local old_ifs="$IFS"
+    IFS='/'
+    for component in $relative; do
+        [ -n "$component" ] || continue
+        current="$current/$component"
+        [ ! -L "$current" ] || { IFS="$old_ifs"; die "migration path contains a symlink: $relative" 2; }
+    done
+    IFS="$old_ifs"
+}
+
+read_consumer_version() {
+    # Contract: print the exact consumer pin from a regular version file.
+    root="$1"
+    file="$root/.spade/version"
+    [ -f "$file" ] && [ ! -L "$file" ] || die "consumer version pin is missing or unsafe" 2
+    version=$(sed -n 's/^spade_version=//p' "$file")
+    [ "$(printf '%s\n' "$version" | wc -l | tr -d ' ')" = "1" ] || die "consumer version pin is malformed" 2
+    validate_version "$version"
+    printf '%s\n' "$version"
+}
+
+version_is_published() {
+    # Contract: succeed only when a version appears in the manifest authority.
+    version="$1"
+    published="$2"
+    printf '%s\n' "$published" | tr ',' '\n' | grep -Fxq "$version"
+}
+
+version_is_not_after() {
+    # Contract: succeed when a published candidate is not newer than a pin.
+    local candidate="$1"
+    local pin="$2"
+    local published="$3"
+    local version seen=0
+    while IFS= read -r version; do
+        [ "$version" = "$candidate" ] && seen=1
+        if [ "$version" = "$pin" ]; then [ "$seen" -eq 1 ]; return; fi
+    done <<EOF
+$(printf '%s' "$published" | tr ',' '\n')
+EOF
+    return 1
+}
+
+fragment_version_floor() {
+    # Contract: print the latest required fragment-refresh version at one pin.
+    local manifest="$1"
+    local start="$2"
+    local pin="$3"
+    local probe="$start"
+    local floor="$start"
+    local row to action seen=""
+    while [ "$probe" != "$pin" ]; do
+        row=$(awk -F'|' -v from="$probe" '$0 !~ /^#/ && $1 == from {print; count++} END {if (count != 1) exit 1}' "$manifest") || return 1
+        to=$(printf '%s' "$row" | cut -d'|' -f2)
+        action=$(printf '%s' "$row" | cut -d'|' -f3)
+        case ",$seen," in *,$to,*) return 1 ;; esac
+        seen="${seen:+$seen,}$to"
+        case "$action" in refresh_fragments|intent_mode_fragments) floor="$to" ;; esac
+        probe="$to"
+    done
+    printf '%s\n' "$floor"
+}
+
+fragment_content_matches() {
+    # Contract: compare one framework-owned marker body with installed authority.
+    local consumer_file="$1"
+    local fragment="$2"
+    awk '
+        /^<!-- SPADE-FRAMEWORK-START v[0-9]+\.[0-9]+\.[0-9]+ -->$/ {inside=1; next}
+        /^<!-- SPADE-FRAMEWORK-END -->$/ && inside {inside=0; exit}
+        inside {print}
+    ' "$consumer_file" | cmp -s - "$fragment"
+}
+
+copy_to_stage() {
+    # Contract: copy one affected regular file into an isolated stage.
+    local consumer="$1"
+    local stage="$2"
+    local relative="$3"
+    validate_consumer_path "$consumer" "$relative"
+    mkdir -p "$stage/$(dirname "$relative")"
+    if [ -e "$consumer/$relative" ]; then
+        [ -f "$consumer/$relative" ] || die "migration target is not a regular file: $relative" 2
+        cp "$consumer/$relative" "$stage/$relative"
+    fi
+}
+
+write_stage_version() {
+    # Contract: write only the staged consumer pin for one transition.
+    stage="$1"
+    version="$2"
+    mkdir -p "$stage/.spade"
+    printf 'spade_version=%s\n' "$version" > "$stage/.spade/version"
+}
+
+refresh_stage_fragments() {
+    # Contract: update staged agent files with bounded marker replacement.
+    install="$1"
+    stage="$2"
+    version="$3"
+    for name in AGENTS CLAUDE; do
+        fragment="$install/fragments/$name-section.md"
+        [ -f "$fragment" ] && [ ! -L "$fragment" ] || die "fragment is missing or unsafe: $name" 2
+        replace_stage_marker "$stage/$name.md" "$fragment" "$version" || return 1
+    done
+}
+
+replace_stage_marker() {
+    # Contract: replace exactly one valid marker block or append one when absent.
+    target="$1"
+    fragment="$2"
+    version="$3"
+    start_re='^<!-- SPADE-FRAMEWORK-START v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]* -->$'
+    end_re='^<!-- SPADE-FRAMEWORK-END -->$'
+    if [ -f "$target" ]; then
+        starts=$(grep -c -E "$start_re" "$target" || true)
+        ends=$(grep -c -E "$end_re" "$target" || true)
+    else
+        starts=0
+        ends=0
+    fi
+    [ "$starts" = "$ends" ] || return 1
+    [ "$starts" -le 1 ] || return 1
+    tmp="$target.marker.$$"
+    if [ "$starts" -eq 0 ]; then
+        {
+            [ ! -f "$target" ] || { cat "$target"; printf '\n'; }
+            printf '<!-- SPADE-FRAMEWORK-START v%s -->\n' "$version"
+            cat "$fragment"
+            printf '<!-- SPADE-FRAMEWORK-END -->\n'
+        } > "$tmp"
+    else
+        awk -v version="$version" -v fragment="$fragment" '
+            /^<!-- SPADE-FRAMEWORK-START v[0-9]+\.[0-9]+\.[0-9]+ -->$/ {
+                print "<!-- SPADE-FRAMEWORK-START v" version " -->"
+                while ((getline line < fragment) > 0) print line
+                close(fragment)
+                print "<!-- SPADE-FRAMEWORK-END -->"
+                inside=1
+                next
+            }
+            /^<!-- SPADE-FRAMEWORK-END -->$/ && inside {inside=0; next}
+            !inside {print}
+        ' "$target" > "$tmp"
+    fi
+    mv "$tmp" "$target"
+}
+
+ensure_stage_intent_and_mode() {
+    # Contract: scaffold intent and a validated tracker mode without overwrites.
+    install="$1"
+    stage="$2"
+    tracker_mode="$3"
+    if [ ! -f "$stage/INTENT.md" ]; then
+        [ -f "$install/templates/INTENT.md" ] && [ ! -L "$install/templates/INTENT.md" ] || die "INTENT template is missing or unsafe" 2
+        cp "$install/templates/INTENT.md" "$stage/INTENT.md"
+    fi
+    mode_values=$(sed -n 's/^mode:[[:space:]]*//p' "$stage/.spade/config" 2>/dev/null || true)
+    mode_count=$(printf '%s\n' "$mode_values" | awk 'NF {count++} END {print count+0}')
+    if [ "$mode_count" -eq 0 ]; then
+        case "$tracker_mode" in linear|local|hybrid) : ;; *) die "migration to 1.7.0 requires --tracker-mode after real tracker validation" 2 ;; esac
+        tmp="$stage/.spade/config.tmp"
+        { printf 'mode: %s\n\n' "$tracker_mode"; [ ! -f "$stage/.spade/config" ] || cat "$stage/.spade/config"; } > "$tmp"
+        mv "$tmp" "$stage/.spade/config"
+    elif [ "$mode_count" -ne 1 ]; then
+        die "consumer tracker configuration must contain at most one mode before migration" 2
+    else
+        mode=$(printf '%s\n' "$mode_values" | head -1)
+        case "$mode" in linear|local|hybrid) : ;; *) die "consumer tracker mode is invalid: $mode" 2 ;; esac
+    fi
+}
+
+apply_action() {
+    # Contract: apply one allowlisted transition action to staged files only.
+    action="$1"
+    install="$2"
+    stage="$3"
+    version="$4"
+    tracker_mode="$5"
+    case "$action" in
+        pin) : ;;
+        refresh_fragments) refresh_stage_fragments "$install" "$stage" "$version" ;;
+        intent_mode_fragments)
+            refresh_stage_fragments "$install" "$stage" "$version"
+            ensure_stage_intent_and_mode "$install" "$stage" "$tracker_mode"
+            ;;
+        *) die "unsupported migration action: $action" 2 ;;
+    esac
+    write_stage_version "$stage" "$version"
+}
+
+verify_stage() {
+    # Contract: verify the complete postcondition for one staged unit.
+    action="$1"
+    stage="$2"
+    version="$3"
+    [ "$(sed -n 's/^spade_version=//p' "$stage/.spade/version")" = "$version" ] || return 1
+    case "$action" in
+        refresh_fragments|intent_mode_fragments)
+            for name in AGENTS CLAUDE; do
+                [ "$(grep -c "^<!-- SPADE-FRAMEWORK-START v$version -->$" "$stage/$name.md" || true)" = "1" ] || return 1
+                [ "$(grep -c '^<!-- SPADE-FRAMEWORK-END -->$' "$stage/$name.md" || true)" = "1" ] || return 1
+            done
+            ;;
+    esac
+    if [ "$action" = "intent_mode_fragments" ]; then
+        [ -f "$stage/INTENT.md" ] || return 1
+        mode_values=$(sed -n 's/^mode:[[:space:]]*//p' "$stage/.spade/config" 2>/dev/null || true)
+        [ "$(printf '%s\n' "$mode_values" | awk 'NF {count++} END {print count+0}')" -eq 1 ] || return 1
+        case "$(printf '%s\n' "$mode_values" | head -1)" in linear|local|hybrid) : ;; *) return 1 ;; esac
+    fi
+}
+
+path_union() {
+    # Contract: print a stable comma list containing each path exactly once.
+    local existing="$1"
+    local additions="$2"
+    local result="$existing"
+    local relative
+    while IFS= read -r relative; do
+        [ -n "$relative" ] || continue
+        case ",$result," in *,$relative,*) : ;; *) result="${result:+$result,}$relative" ;; esac
+    done <<EOF
+$(printf '%s' "$additions" | tr ',' '\n')
+EOF
+    printf '%s\n' "$result"
+}
+
+derive_paths_between() {
+    # Contract: derive the exact affected-path union for one manifest route.
+    local manifest="$1"
+    local start="$2"
+    local finish="$3"
+    local probe="$start"
+    local result=""
+    local row to paths seen=""
+    while [ "$probe" != "$finish" ]; do
+        row=$(awk -F'|' -v from="$probe" '$0 !~ /^#/ && $1 == from {print; count++} END {if (count != 1) exit 1}' "$manifest") || return 1
+        to=$(printf '%s' "$row" | cut -d'|' -f2)
+        paths=$(printf '%s' "$row" | cut -d'|' -f4)
+        case ",$seen," in *,$to,*) return 1 ;; esac
+        seen="${seen:+$seen,}$to"
+        result=$(path_union "$result" "$paths")
+        probe="$to"
+    done
+    printf '%s\n' "$result"
+}
+
+file_fingerprint() {
+    # Contract: print one SHA-256 digest for a regular file.
+    if [ -x /usr/bin/shasum ]; then
+        /usr/bin/shasum -a 256 "$1" | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        die "no SHA-256 implementation is available" 2
+    fi
+}
+
+write_checkpoint() {
+    # Contract: atomically record the target and fingerprints of verified dirt.
+    local consumer="$1"
+    local start="$2"
+    local target="$3"
+    local paths="$4"
+    local checkpoint
+    checkpoint=$(lifecycle_state_path "$consumer" checkpoint)
+    local tmp relative fingerprint
+    [ ! -L "$checkpoint" ] || die "lifecycle checkpoint is a symlink" 2
+    tmp="$checkpoint.tmp.$$"
+    ACTIVE_CHECKPOINT_TEMP="$tmp"
+    printf '%s|%s|%s\n' "$start" "$target" "$paths" > "$tmp"
+    while IFS= read -r relative; do
+        [ -n "$relative" ] || continue
+        [ -f "$consumer/$relative" ] && [ ! -L "$consumer/$relative" ] || { rm -f "$tmp"; die "checkpoint path is missing or unsafe: $relative" 1; }
+        fingerprint=$(file_fingerprint "$consumer/$relative")
+        printf '%s|%s\n' "$relative" "$fingerprint" >> "$tmp"
+    done <<EOF
+$(printf '%s' "$paths" | tr ',' '\n')
+EOF
+    mv "$tmp" "$checkpoint"
+    ACTIVE_CHECKPOINT_TEMP=""
+}
+
+validate_checkpoint() {
+    # Contract: accept only verified migration dirt from the same target route.
+    local consumer="$1"
+    local manifest="$2"
+    local target="$3"
+    local checkpoint_version="$4"
+    local checkpoint
+    checkpoint=$(lifecycle_state_path "$consumer" checkpoint)
+    local header checkpoint_start checkpoint_target checkpoint_seen relative expected_digest fingerprint status
+    CHECKPOINT_PATHS=""
+    [ -e "$checkpoint" ] || return 1
+    [ -f "$checkpoint" ] && [ ! -L "$checkpoint" ] || die "lifecycle checkpoint is unsafe" 2
+    header=$(sed -n '1p' "$checkpoint")
+    checkpoint_start=$(printf '%s' "$header" | cut -d'|' -f1)
+    checkpoint_target=$(printf '%s' "$header" | cut -d'|' -f2)
+    CHECKPOINT_PATHS=$(printf '%s' "$header" | cut -d'|' -f3)
+    [ "$checkpoint_target" = "$target" ] || die "existing migration checkpoint targets $checkpoint_target, not $target" 2
+    [ -n "$CHECKPOINT_PATHS" ] || die "lifecycle checkpoint has no paths" 2
+    validate_version "$checkpoint_start"
+    [ "$(derive_paths_between "$manifest" "$checkpoint_start" "$checkpoint_version" || true)" = "$CHECKPOINT_PATHS" ] || die "checkpoint paths do not match the prevalidated migration route" 2
+    checkpoint_seen=""
+    while IFS='|' read -r relative expected_digest; do
+        [ -n "$relative" ] || continue
+        case ",$CHECKPOINT_PATHS," in *,$relative,*) : ;; *) die "checkpoint contains an undeclared path: $relative" 2 ;; esac
+        case ",$checkpoint_seen," in *,$relative,*) die "checkpoint duplicates path: $relative" 2 ;; esac
+        checkpoint_seen="${checkpoint_seen:+$checkpoint_seen,}$relative"
+        validate_consumer_path "$consumer" "$relative"
+        [ -f "$consumer/$relative" ] && [ ! -L "$consumer/$relative" ] || die "checkpoint path is missing or unsafe: $relative" 2
+        fingerprint=$(file_fingerprint "$consumer/$relative")
+        [ "$fingerprint" = "$expected_digest" ] || die "checkpoint does not match live state: $relative" 2
+    done <<EOF
+$(sed -n '2,$p' "$checkpoint")
+EOF
+    [ "$checkpoint_seen" = "$CHECKPOINT_PATHS" ] || die "checkpoint path records are incomplete or out of order" 2
+    git -C "$consumer" status --porcelain --untracked-files=all | while IFS= read -r status; do
+        relative=$(printf '%s' "$status" | cut -c4-)
+        case ",$CHECKPOINT_PATHS," in
+            *,$relative,*) : ;;
+            *) exit 1 ;;
+        esac
+    done || die "worktree contains changes outside the verified migration checkpoint" 2
+    return 0
+}
+
+prepare_journal() {
+    # Contract: persist staged files and exact backups before consumer mutation.
+    local consumer="$1"
+    local stage="$2"
+    local from="$3"
+    local to="$4"
+    local action="$5"
+    local paths="$6"
+    local target="$7"
+    local start="$8"
+    local previous="$9"
+    local cumulative="${10}"
+    local tracker_mode="${11}"
+    local journal
+    journal=$(lifecycle_state_path "$consumer" transaction)
+    local temp relative
+    [ ! -e "$journal" ] && [ ! -L "$journal" ] || die "lifecycle transaction already exists" 2
+    temp=$(mktemp -d "$(dirname "$journal")/spade-lifecycle-transaction.tmp.XXXXXX")
+    ACTIVE_JOURNAL_TEMP="$temp"
+    mkdir -p "$temp/staged" "$temp/backup/present" "$temp/backup/absent"
+    while IFS= read -r relative; do
+        [ -n "$relative" ] || continue
+        validate_consumer_path "$consumer" "$relative"
+        mkdir -p "$temp/staged/$(dirname "$relative")"
+        cp "$stage/$relative" "$temp/staged/$relative" || { rm -rf "$temp"; return 1; }
+        if [ -f "$consumer/$relative" ]; then
+            mkdir -p "$temp/backup/present/$(dirname "$relative")"
+            cp "$consumer/$relative" "$temp/backup/present/$relative" || { rm -rf "$temp"; return 1; }
+        else
+            mkdir -p "$temp/backup/absent/$(dirname "$relative")"
+            : > "$temp/backup/absent/$relative"
+        fi
+    done <<EOF
+$(printf '%s' "$paths" | tr ',' '\n')
+EOF
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$from" "$to" "$action" "$paths" "$target" "$start" "$previous" "$cumulative" "$tracker_mode" > "$temp/record"
+    mv "$temp" "$journal"
+    ACTIVE_JOURNAL_TEMP=""
+}
+
+rollback_journal() {
+    # Contract: restore and verify every path, retaining evidence on any failure.
+    local consumer="$1"
+    local journal
+    journal=$(lifecycle_state_path "$consumer" transaction)
+    local paths failed relative tmp
+    [ -d "$journal" ] && [ ! -L "$journal" ] && [ -f "$journal/record" ] || return 1
+    paths=$(cut -d'|' -f4 "$journal/record")
+    failed=0
+    while IFS= read -r relative; do
+        [ -n "$relative" ] || continue
+        if [ -f "$journal/backup/present/$relative" ]; then
+            mkdir -p "$consumer/$(dirname "$relative")" || failed=1
+            tmp="$consumer/$relative.rollback.$$"
+            cp "$journal/backup/present/$relative" "$tmp" || failed=1
+            [ "$failed" -ne 0 ] || mv "$tmp" "$consumer/$relative" || failed=1
+            rm -f "$tmp"
+            cmp -s "$journal/backup/present/$relative" "$consumer/$relative" || failed=1
+        else
+            rm -f "$consumer/$relative" || failed=1
+            [ ! -e "$consumer/$relative" ] || failed=1
+        fi
+    done <<EOF
+$(printf '%s' "$paths" | tr ',' '\n')
+EOF
+    [ "$failed" -eq 0 ] || return 1
+    rm -rf "$journal"
+}
+
+ACTIVE_CONSUMER=""
+ACTIVE_PHASE=""
+ACTIVE_CHECKPOINT_TEMP=""
+ACTIVE_JOURNAL_TEMP=""
+handle_migration_signal() {
+    # Contract: roll back the active unit on catchable termination signals.
+    trap - HUP INT TERM
+    [ -z "$ACTIVE_CHECKPOINT_TEMP" ] || rm -f "$ACTIVE_CHECKPOINT_TEMP"
+    [ -z "$ACTIVE_JOURNAL_TEMP" ] || rm -rf "$ACTIVE_JOURNAL_TEMP"
+    if [ "$ACTIVE_PHASE" = "rollback" ] && [ -n "$ACTIVE_CONSUMER" ] && ! rollback_journal "$ACTIVE_CONSUMER"; then
+        echo "$PROG: interrupted migration rollback failed; transaction retained" >&2
+    elif [ "$ACTIVE_PHASE" = "retain" ]; then
+        echo "$PROG: interrupted migration transaction retained for verified recovery" >&2
+    fi
+    exit 1
+}
+
+commit_journal() {
+    # Contract: commit one persisted unit with the version pin strictly last.
+    local consumer="$1"
+    local paths="$2"
+    local journal
+    journal=$(lifecycle_state_path "$consumer" transaction)
+    local ordered failed relative tmp
+    ordered=$(printf '%s\n' "$paths" | tr ',' '\n' | awk '$0 != ".spade/version" {print} END {print ".spade/version"}')
+    failed=0
+    while IFS= read -r relative; do
+        [ -n "$relative" ] || continue
+        mkdir -p "$consumer/$(dirname "$relative")" || { failed=1; break; }
+        tmp="$consumer/$relative.spade-tmp.$$"
+        cp "$journal/staged/$relative" "$tmp" || { failed=1; rm -f "$tmp"; break; }
+        mv "$tmp" "$consumer/$relative" || { failed=1; rm -f "$tmp"; break; }
+    done <<EOF
+$ordered
+EOF
+    if [ "$failed" -ne 0 ]; then
+        rollback_journal "$consumer" || die "migration commit and rollback both failed; transaction retained" 1
+        return 1
+    fi
+}
+
+verify_journal_bytes() {
+    # Contract: prove backups from Git/checkpoint state and staged authoritative output.
+    local consumer="$1"
+    local install="$2"
+    local journal="$3"
+    local checkpoint="$4"
+    local from="$5"
+    local to="$6"
+    local action="$7"
+    local paths="$8"
+    local previous="$9"
+    local tracker_mode="${10}"
+    local audit relative expected index_file present absent live_matches
+    audit=$(mktemp -d "$(dirname "$journal")/spade-lifecycle-audit.XXXXXX")
+    while IFS= read -r relative; do
+        [ -n "$relative" ] || continue
+        present=0
+        absent=0
+        [ ! -f "$journal/backup/present/$relative" ] || present=1
+        [ ! -f "$journal/backup/absent/$relative" ] || absent=1
+        [ $((present + absent)) -eq 1 ] || { rm -rf "$audit"; return 1; }
+        validate_consumer_path "$journal/backup" "present/$relative"
+        validate_consumer_path "$journal/backup" "absent/$relative"
+        if [ "$present" -eq 1 ]; then
+            copy_to_stage "$journal/backup/present" "$audit" "$relative"
+        fi
+        case ",$previous," in
+            *,$relative,*)
+                [ -f "$checkpoint" ] && [ ! -L "$checkpoint" ] || { rm -rf "$audit"; return 1; }
+                expected=$(awk -F'|' -v path="$relative" 'NR > 1 && $1 == path {print $2; count++} END {if (count != 1) exit 1}' "$checkpoint") || { rm -rf "$audit"; return 1; }
+                [ "$present" -eq 1 ] && [ "$(file_fingerprint "$journal/backup/present/$relative")" = "$expected" ] || { rm -rf "$audit"; return 1; }
+                ;;
+            *)
+                index_file="$audit/.index.$$"
+                if git -C "$consumer" cat-file -e ":$relative" 2>/dev/null; then
+                    git -C "$consumer" show ":$relative" > "$index_file" || { rm -rf "$audit"; return 1; }
+                    [ "$present" -eq 1 ] && cmp -s "$journal/backup/present/$relative" "$index_file" || { rm -rf "$audit"; return 1; }
+                else
+                    [ "$absent" -eq 1 ] || { rm -rf "$audit"; return 1; }
+                fi
+                rm -f "$index_file"
+                ;;
+        esac
+    done <<EOF
+$(printf '%s' "$paths" | tr ',' '\n')
+EOF
+    apply_action "$action" "$install" "$audit" "$to" "$tracker_mode" || { rm -rf "$audit"; return 1; }
+    verify_stage "$action" "$audit" "$to" || { rm -rf "$audit"; return 1; }
+    while IFS= read -r relative; do
+        [ -n "$relative" ] || continue
+        [ -f "$journal/staged/$relative" ] && cmp -s "$audit/$relative" "$journal/staged/$relative" || { rm -rf "$audit"; return 1; }
+        live_matches=0
+        if [ -f "$consumer/$relative" ] && cmp -s "$consumer/$relative" "$journal/staged/$relative"; then live_matches=1; fi
+        if [ -f "$journal/backup/present/$relative" ] && [ -f "$consumer/$relative" ] && cmp -s "$consumer/$relative" "$journal/backup/present/$relative"; then live_matches=1; fi
+        if [ -f "$journal/backup/absent/$relative" ] && [ ! -e "$consumer/$relative" ]; then live_matches=1; fi
+        [ "$live_matches" -eq 1 ] || { rm -rf "$audit"; return 1; }
+    done <<EOF
+$(printf '%s' "$paths" | tr ',' '\n')
+EOF
+    rm -rf "$audit"
+}
+
+recover_journal() {
+    # Contract: reconcile a persisted interrupted unit against the real pin.
+    local consumer="$1"
+    local install="$2"
+    local target="$3"
+    local manifest="$4"
+    local requested_tracker="$5"
+    local journal
+    journal=$(lifecycle_state_path "$consumer" transaction)
+    local from to action paths recorded_target start previous cumulative recorded_tracker current row expected_previous expected_cumulative relative allowed checkpoint
+    [ -e "$journal" ] || return 0
+    [ -d "$journal" ] && [ ! -L "$journal" ] && [ -f "$journal/record" ] && [ ! -L "$journal/record" ] || die "lifecycle transaction is unsafe" 2
+    find "$journal" -type l -print | grep -q . && die "lifecycle transaction contains a symlink" 2
+    IFS='|' read -r from to action paths recorded_target start previous cumulative recorded_tracker < "$journal/record"
+    [ "$recorded_target" = "$target" ] || die "interrupted migration targets $recorded_target, not $target" 2
+    validate_version "$from"
+    validate_version "$to"
+    validate_version "$start"
+    row=$(awk -F'|' -v from="$from" '$0 !~ /^#/ && $1 == from {print; count++} END {if (count != 1) exit 1}' "$manifest") || die "transaction does not name one migration unit" 2
+    [ "$row" = "$from|$to|$action|$paths" ] || die "transaction does not match the migration authority" 2
+    expected_previous=$(derive_paths_between "$manifest" "$start" "$from" || true)
+    [ "$previous" = "$expected_previous" ] || die "transaction previous paths do not match the migration route" 2
+    expected_cumulative=$(path_union "$previous" "$paths")
+    [ "$cumulative" = "$expected_cumulative" ] || die "transaction cumulative paths do not match the migration route" 2
+    case "$action" in intent_mode_fragments) [ "$recorded_tracker" = "$requested_tracker" ] || die "transaction tracker mode does not match the validated request" 2 ;; esac
+    for relative in $(printf '%s' "$cumulative" | tr ',' ' '); do validate_consumer_path "$consumer" "$relative"; done
+    for relative in $(printf '%s' "$paths" | tr ',' ' '); do
+        [ -f "$journal/staged/$relative" ] && [ ! -L "$journal/staged/$relative" ] || die "transaction staged path is missing or unsafe: $relative" 2
+        validate_consumer_path "$journal/staged" "$relative"
+        [ ! -e "$journal/backup/present/$relative" ] || { [ -f "$journal/backup/present/$relative" ] && [ ! -L "$journal/backup/present/$relative" ] || die "transaction backup path is unsafe: $relative" 2; }
+        [ ! -e "$journal/backup/absent/$relative" ] || { [ -f "$journal/backup/absent/$relative" ] && [ ! -L "$journal/backup/absent/$relative" ] || die "transaction absence marker is unsafe: $relative" 2; }
+    done
+    checkpoint=$(lifecycle_state_path "$consumer" checkpoint)
+    verify_journal_bytes "$consumer" "$install" "$journal" "$checkpoint" "$from" "$to" "$action" "$paths" "$previous" "$recorded_tracker" || die "transaction bytes do not match authoritative pre-unit and staged state" 2
+    current=$(read_consumer_version "$consumer")
+    if [ "$current" = "$from" ]; then
+        if [ -n "$previous" ]; then
+            header=$(sed -n '1p' "$checkpoint")
+            [ "$(printf '%s' "$header" | cut -d'|' -f1)" = "$start" ] && [ "$(printf '%s' "$header" | cut -d'|' -f2)" = "$target" ] && [ "$(printf '%s' "$header" | cut -d'|' -f3)" = "$previous" ] || die "transaction checkpoint does not match previous paths" 2
+        else
+            git -C "$consumer" status --porcelain --untracked-files=all | while IFS= read -r status; do
+                relative=$(printf '%s' "$status" | cut -c4-)
+                case ",$paths," in *,$relative,*) : ;; *) exit 1 ;; esac
+            done || die "worktree changed outside the first interrupted unit" 2
+        fi
+        rollback_journal "$consumer" || die "interrupted migration rollback failed; transaction retained" 1
+        printf 'RECOVERED|action=rollback|version=%s\n' "$from"
+    elif [ "$current" = "$to" ]; then
+        allowed="$cumulative"
+        git -C "$consumer" status --porcelain --untracked-files=all | while IFS= read -r status; do
+            relative=$(printf '%s' "$status" | cut -c4-)
+            case ",$allowed," in *,$relative,*) : ;; *) exit 1 ;; esac
+        done || die "worktree changed outside the completed interrupted unit" 2
+        verify_stage "$action" "$consumer" "$to" || die "completed transaction does not match live postconditions" 2
+        write_checkpoint "$consumer" "$start" "$target" "$cumulative"
+        rm -rf "$journal"
+        printf 'RECOVERED|action=complete|version=%s\n' "$to"
+    else
+        die "transaction pin is neither $from nor $to" 2
+    fi
+}
+
+run_unit() {
+    # Contract: stage, persist, commit, and fully verify exactly one transition.
+    local install="$1"
+    local consumer="$2"
+    local from="$3"
+    local to="$4"
+    local action="$5"
+    local paths="$6"
+    local tracker_mode="$7"
+    local target="$8"
+    local start="$9"
+    local previous="${10}"
+    local cumulative="${11}"
+    local stage relative
+    [ "$(read_consumer_version "$consumer")" = "$from" ] || die "consumer state changed before migration $from to $to" 1
+    stage=$(mktemp -d "${TMPDIR:-/tmp}/spade-migration.XXXXXX")
+    while IFS= read -r relative; do
+        [ -n "$relative" ] || continue
+        copy_to_stage "$consumer" "$stage" "$relative"
+    done <<EOF
+$(printf '%s' "$paths" | tr ',' '\n')
+EOF
+    if ! apply_action "$action" "$install" "$stage" "$to" "$tracker_mode" || ! verify_stage "$action" "$stage" "$to"; then
+        rm -rf "$stage"
+        die "migration unit failed verification before commit: $from to $to" 1
+    fi
+    ACTIVE_CONSUMER="$consumer"
+    ACTIVE_PHASE="rollback"
+    trap handle_migration_signal HUP INT TERM
+    prepare_journal "$consumer" "$stage" "$from" "$to" "$action" "$paths" "$target" "$start" "$previous" "$cumulative" "$tracker_mode" || { rm -rf "$stage"; die "migration journal preparation failed" 1; }
+    rm -rf "$stage"
+    if ! commit_journal "$consumer" "$paths"; then
+        die "migration unit commit failed and was rolled back: $from to $to" 1
+    fi
+    ACTIVE_PHASE="retain"
+    verify_stage "$action" "$consumer" "$to" || die "migration unit failed live postcondition verification; transaction retained" 1
+    write_checkpoint "$consumer" "$start" "$target" "$cumulative"
+    rm -rf "$(lifecycle_state_path "$consumer" transaction)"
+    trap - HUP INT TERM
+    ACTIVE_CONSUMER=""
+    ACTIVE_PHASE=""
+    printf 'MIGRATED|from=%s|to=%s|action=%s\n' "$from" "$to" "$action"
+}
+
+check_inventory_dir() {
+    # Contract: compare exact declared names with one host payload directory.
+    check="$1"
+    directory="$2"
+    expected_csv="$3"
+    kind="$4"
+    expected=$(printf '%s\n' "$expected_csv" | tr ',' '\n' | LC_ALL=C sort)
+    if [ "$kind" = "directory" ]; then
+        actual=$(find "$directory" -mindepth 1 -maxdepth 1 -type d \( -name 'spade*' -o -name 'leads' -o -name 'unslop' \) -exec basename {} \; | LC_ALL=C sort)
+    else
+        actual=$(find "$directory" -maxdepth 1 -type f -name 'spade-review-*.md' -exec basename {} .md \; | LC_ALL=C sort)
+    fi
+    if [ "$actual" = "$expected" ]; then
+        finding OK "$check" "exact declared inventory" "matched at $directory" "none"
+    else
+        finding ERROR "$check" "exact declared inventory" "name or file-type mismatch at $directory" "reinstall the exact host projection"
+    fi
+}
+
+verify_global_receipt() {
+    # Contract: verify every installed global file against its machine receipt.
+    local host="$1"
+    local receipt="$HOME/.config/spade/$host.manifest"
+    local header receipt_kind receipt_status receipt_revision receipt_remote receipt_version
+    local kind source destination expected actual count=0 failed=0
+    [ -f "$receipt" ] && [ ! -L "$receipt" ] || { finding ERROR "$host-projection-integrity" "regular SHA-256 receipt" "missing or unsafe" "rerun setup from the approved source revision"; return 1; }
+    header=$(sed -n '1p' "$receipt")
+    IFS='|' read -r receipt_kind receipt_status receipt_revision receipt_remote receipt_version <<EOF
+$header
+EOF
+    if [ "$receipt_kind" != "provenance" ] || [ "$receipt_status" != "approved-commit" ] || ! printf '%s' "$receipt_revision" | grep -Eq '^[0-9a-f]{40,64}$' || [ "$receipt_remote" != "$canonical" ] || [ "$receipt_version" != "$version" ]; then
+        GLOBAL_RECEIPT_APPROVED=0
+    else
+        GLOBAL_RECEIPT_REVISIONS="${GLOBAL_RECEIPT_REVISIONS:+$GLOBAL_RECEIPT_REVISIONS,}$receipt_revision"
+    fi
+    while IFS='|' read -r kind source destination expected; do
+        count=$((count + 1))
+        case "$kind|$source|$destination|$expected" in
+            file\|*\|*\|????????????????????????????????????????????????????????????????) : ;;
+            *) failed=1; continue ;;
+        esac
+        case "$source$destination" in *..*|*\\*|/*) failed=1; continue ;; esac
+        printf '%s' "$expected" | grep -Eq '^[0-9a-f]{64}$' || { failed=1; continue; }
+        validate_consumer_path "$HOME" "$destination"
+        if [ ! -f "$HOME/$destination" ] || [ -L "$HOME/$destination" ]; then failed=1; continue; fi
+        actual=$(file_fingerprint "$HOME/$destination")
+        [ "$actual" = "$expected" ] || failed=1
+    done <<EOF
+$(sed -n '2,$p' "$receipt")
+EOF
+    if [ "$count" -gt 0 ] && [ "$failed" -eq 0 ]; then
+        finding OK "$host-projection-integrity" "receipt SHA-256 for every installed file" "$count files matched" "none"
+        return 0
+    fi
+    finding ERROR "$host-projection-integrity" "receipt SHA-256 for every installed file" "malformed, missing, or modified payload" "rerun setup from the approved source revision"
+    return 1
+}
+
+verify_plugin_payload() {
+    # Contract: verify one host-managed plugin against its embedded hash claims.
+    local root="$1"
+    local receipt="$2"
+    local check="$3"
+    local kind relative expected actual count=0 failed=0
+    [ -f "$receipt" ] && [ ! -L "$receipt" ] || { finding ERROR "$check" "embedded SHA-256 payload manifest" "missing or unsafe" "reinstall the immutable host plugin revision"; return 1; }
+    while IFS='|' read -r kind relative expected; do
+        count=$((count + 1))
+        [ "$kind" = file ] || { failed=1; continue; }
+        case "$relative" in ""|/*|*..*|*\\*) failed=1; continue ;; esac
+        printf '%s' "$expected" | grep -Eq '^[0-9a-f]{64}$' || { failed=1; continue; }
+        validate_consumer_path "$root" "$relative"
+        if [ ! -f "$root/$relative" ] || [ -L "$root/$relative" ]; then failed=1; continue; fi
+        actual=$(file_fingerprint "$root/$relative")
+        [ "$actual" = "$expected" ] || failed=1
+    done < "$receipt"
+    if [ "$count" -gt 0 ] && [ "$failed" -eq 0 ]; then
+        finding OK "$check" "embedded SHA-256 payload manifest" "$count files matched" "none"
+        return 0
+    fi
+    finding ERROR "$check" "embedded SHA-256 payload manifest" "malformed, missing, or modified payload" "reinstall the immutable host plugin revision"
+    return 1
+}
+
+diagnose() {
+    # Contract: perform deterministic read-only checks and return drift status.
+    install="$1"
+    consumer="$2"
+    host="$3"
+    validate_root "install root" "$install"
+    case "$host" in auto|claude|codex) : ;; *) die "unsupported host: $host" 2 ;; esac
+    capability=$(manifest_path "$install")
+    canonical=$(frontmatter_value canonical_remote "$capability")
+    version=$(frontmatter_value version "$capability")
+    helpers=$(frontmatter_value helpers "$capability")
+    skills=$(frontmatter_value skills "$capability")
+    personas=$(frontmatter_value review_personas "$capability")
+    finding OK installation-root "regular capability manifest" "$capability" "none"
+    install_mode=""
+    git_top=$(git -C "$install" rev-parse --show-toplevel 2>/dev/null || true)
+    install_real=$(cd "$install" && pwd -P)
+    git_top_real=""
+    [ -z "$git_top" ] || git_top_real=$(cd "$git_top" && pwd -P)
+    if [ -n "$git_top_real" ] && [ "$git_top_real" = "$install_real" ]; then
+        install_mode="clone"
+        observed=$(git -C "$install" remote get-url origin 2>/dev/null || true)
+        redacted=$(redact_url "$observed")
+        if [ "$observed" = "$canonical" ]; then
+            finding OK remote-identity "$canonical" "$redacted" "none"
+        else
+            finding ERROR remote-identity "$canonical" "$redacted" "set origin to the canonical remote or reinstall"
+        fi
+        head=$(git -C "$install" rev-parse HEAD 2>/dev/null || true)
+        if printf '%s' "$head" | grep -Eq '^[0-9a-f]{40,64}$'; then
+            finding OK installed-revision "exact commit" "$head" "record this commit before updating"
+        else
+            finding ERROR installed-revision "exact commit" "${head:-unresolved}" "repair or reinstall the clone"
+        fi
+        branch=$(git -C "$install" branch --show-current 2>/dev/null || true)
+        if [ "$branch" = "main" ]; then finding OK install-branch "main" "$branch" "none"; else finding ERROR install-branch "main" "${branch:-detached}" "restore the default branch before updating"; fi
+        dirty=$(git -C "$install" status --porcelain 2>/dev/null || true)
+        if [ -z "$dirty" ]; then finding OK install-worktree "clean" "clean" "none"; else finding ERROR install-worktree "clean" "dirty" "commit, move, or remove local changes before updating"; fi
+    else
+        home_spade=$(cd "$HOME" && printf '%s/.spade\n' "$(pwd -P)")
+        if [ "$install_real" = "$home_spade" ]; then
+            install_mode="global"
+            finding OK installation-mode "global projection" "global projection" "update the source clone, then rerun setup"
+        elif [ -f "$install/.claude-plugin/plugin.json" ] || [ -f "$install/.codex-plugin/plugin.json" ]; then
+            install_mode="plugin"
+            finding OK installation-mode "host-managed plugin" "host-managed plugin" "use the host plugin manager for updates"
+        else
+            finding ERROR installation-mode "clone, global projection, or host-managed plugin" "unrecognised layout" "reinstall through a supported path"
+            UNSUPPORTED=1
+        fi
+    fi
+    if [ "$install_mode" = "global" ]; then
+        provenance_ok=1
+        GLOBAL_RECEIPT_APPROVED=1
+        GLOBAL_RECEIPT_REVISIONS=""
+        case "$host" in auto|claude) verify_global_receipt claude || provenance_ok=0 ;; esac
+        case "$host" in auto|codex) verify_global_receipt codex || provenance_ok=0 ;; esac
+        unique_revisions=$(printf '%s' "$GLOBAL_RECEIPT_REVISIONS" | tr ',' '\n' | LC_ALL=C sort -u | awk 'NF {count++} END {print count+0}')
+        if [ "$provenance_ok" -eq 1 ] && [ "$GLOBAL_RECEIPT_APPROVED" -eq 1 ] && [ "$unique_revisions" -eq 1 ]; then finding OK installed-revision "one exact canonical human-approved source commit" "$GLOBAL_RECEIPT_REVISIONS" "none"; else finding ERROR installed-revision "one exact canonical human-approved source commit" "receipt is unapproved, inconsistent, or unavailable" "rerun setup with SPADE_APPROVED_SHA after exact SHA approval"; UNSUPPORTED=1; fi
+    elif [ "$install_mode" = "plugin" ]; then
+        provenance_ok=0
+        if [ -f "$install/.claude-plugin/plugin.json" ]; then verify_plugin_payload "$install" "$install/.claude-plugin/payload.manifest" claude-plugin-integrity && provenance_ok=1; fi
+        if [ -f "$install/.codex-plugin/plugin.json" ]; then verify_plugin_payload "$install" "$install/payload.manifest" codex-plugin-integrity && provenance_ok=1; fi
+        if [ "$provenance_ok" -eq 1 ]; then finding ERROR installed-revision "separately trusted immutable host-manager revision" "embedded payload integrity matched but manager revision evidence is unavailable" "verify the immutable revision in the host manager"; else finding ERROR installed-revision "separately trusted immutable host-manager revision" "payload integrity unavailable" "reinstall through the host plugin manager"; fi
+        UNSUPPORTED=1
+    fi
+    helper_dir="$install/bin"
+    [ -d "$helper_dir" ] || helper_dir="$install/scripts"
+    expected_helpers=$(printf '%s\n' "$helpers" | tr ',' '\n' | LC_ALL=C sort)
+    actual_helpers=""
+    if [ -d "$helper_dir" ]; then
+        actual_helpers=$(find "$helper_dir" -maxdepth 1 -type f -name 'spade-*' -exec basename {} \; | LC_ALL=C sort)
+    fi
+    helpers_safe=1
+    for helper in $(printf '%s\n' "$helpers" | tr ',' ' '); do [ -x "$helper_dir/$helper" ] && [ ! -L "$helper_dir/$helper" ] || helpers_safe=0; done
+    if [ "$actual_helpers" = "$expected_helpers" ] && [ "$helpers_safe" -eq 1 ]; then
+        finding OK helper-inventory "exact declared regular executables" "matched at $helper_dir" "none"
+    else
+        finding ERROR helper-inventory "exact declared regular executables" "name, type, or mode mismatch at $helper_dir" "reinstall the exact host projection"
+    fi
+    inventory_checked=0
+    case "$host" in
+        auto|claude)
+            if [ -d "$install/.claude/skills" ] && [ -d "$install/.claude/agents" ]; then
+                check_inventory_dir claude-skills "$install/.claude/skills" "$skills" directory
+                check_inventory_dir claude-personas "$install/.claude/agents" "$personas" file
+                inventory_checked=1
+            elif [ -f "$install/.claude-plugin/plugin.json" ] && [ -d "$install/skills" ] && [ -d "$install/agents" ]; then
+                check_inventory_dir claude-skills "$install/skills" "$skills" directory
+                check_inventory_dir claude-personas "$install/agents" "$personas" file
+                inventory_checked=1
+            elif [ -d "$HOME/.claude/skills" ] && [ -d "$HOME/.claude/agents" ]; then
+                check_inventory_dir claude-skills "$HOME/.claude/skills" "$skills" directory
+                check_inventory_dir claude-personas "$HOME/.claude/agents" "$personas" file
+                inventory_checked=1
+            elif [ "$host" = "claude" ]; then
+                finding ERROR claude-inventory "installed Claude projection" "missing" "rerun setup for Claude"
+            fi
+            ;;
+    esac
+    case "$host" in
+        auto|codex)
+            if [ -d "$install/.codex/skills" ]; then
+                check_inventory_dir codex-skills "$install/.codex/skills" "$skills" directory
+                check_inventory_dir codex-personas "$install/.codex/skills/spade-review/references/personas" "$personas" file
+                inventory_checked=1
+            elif [ -f "$install/.codex-plugin/plugin.json" ] && [ -d "$install/skills" ]; then
+                check_inventory_dir codex-skills "$install/skills" "$skills" directory
+                check_inventory_dir codex-personas "$install/skills/spade-review/references/personas" "$personas" file
+                inventory_checked=1
+            elif [ -d "$HOME/.codex/skills" ]; then
+                check_inventory_dir codex-skills "$HOME/.codex/skills" "$skills" directory
+                check_inventory_dir codex-personas "$HOME/.codex/skills/spade-review/references/personas" "$personas" file
+                inventory_checked=1
+            elif [ "$host" = "codex" ]; then
+                finding ERROR codex-inventory "installed Codex projection" "missing" "rerun setup for Codex"
+            fi
+            ;;
+    esac
+    if [ "$inventory_checked" -eq 0 ]; then
+        finding ERROR installed-inventory "one selected host projection" "payload directories unavailable" "select --host and use its real plugin or global install root"
+    fi
+    skill_count=$(printf '%s\n' "$skills" | tr ',' '\n' | wc -l | tr -d ' ')
+    finding OK capability-inventory "$skill_count skills at version $version" "$skill_count declared skills" "none"
+    if [ -n "$consumer" ]; then
+        validate_root "consumer root" "$consumer"
+        if [ -f "$consumer/.spade/config" ] && [ ! -L "$consumer/.spade/config" ]; then
+            mode_values=$(sed -n 's/^mode:[[:space:]]*//p' "$consumer/.spade/config")
+            mode_count=$(printf '%s\n' "$mode_values" | awk 'NF {count++} END {print count+0}')
+            mode=$(printf '%s\n' "$mode_values" | head -1)
+            case "$mode" in linear|local|hybrid) mode_valid=1 ;; *) mode_valid=0 ;; esac
+            if [ "$mode_count" -eq 1 ] && [ "$mode_valid" -eq 1 ]; then finding OK tracker-mode "one linear, local, or hybrid declaration" "$mode" "none"; else finding ERROR tracker-mode "one linear, local, or hybrid declaration" "count=$mode_count value=${mode:-missing}" "set one explicit validated mode"; fi
+        else
+            finding ERROR tracker-mode "regular .spade/config" "missing or unsafe" "run spade-onboard"
+        fi
+        version_file="$consumer/.spade/version"
+        consumer_version=$(sed -n 's/^spade_version=//p' "$version_file" 2>/dev/null || true)
+        published=$(frontmatter_value published_versions "$capability")
+        if [ -f "$version_file" ] && [ ! -L "$version_file" ] && printf '%s' "$consumer_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' && [ "$(printf '%s\n' "$consumer_version" | wc -l | tr -d ' ')" = "1" ]; then
+            if version_is_published "$consumer_version" "$published"; then
+                finding OK consumer-version "published version" "$consumer_version" "none"
+            else
+                finding ERROR consumer-version "published version" "$consumer_version" "restore a supported version pin"
+                UNSUPPORTED=1
+            fi
+        else
+            finding ERROR consumer-version "valid .spade/version" "missing or malformed" "restore a supported version pin"
+            UNSUPPORTED=1
+        fi
+        migration_manifest="$install/migrations/manifest.tsv"
+        fragment_floor=""
+        if [ -f "$migration_manifest" ] && [ ! -L "$migration_manifest" ] && version_is_published "$consumer_version" "$published"; then
+            fragment_floor=$(fragment_version_floor "$migration_manifest" "$(frontmatter_value minimum_supported_version "$capability")" "$consumer_version" || true)
+        fi
+        for name in AGENTS CLAUDE; do
+            if [ -f "$consumer/$name.md" ] && [ ! -L "$consumer/$name.md" ]; then
+                starts=$(grep -c '^<!-- SPADE-FRAMEWORK-START v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]* -->$' "$consumer/$name.md" || true)
+                ends=$(grep -c '^<!-- SPADE-FRAMEWORK-END -->$' "$consumer/$name.md" || true)
+                marker_version=$(sed -n 's/^<!-- SPADE-FRAMEWORK-START v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\) -->$/\1/p' "$consumer/$name.md")
+                fragment="$install/fragments/$name-section.md"
+                if [ "$starts" = "1" ] && [ "$ends" = "1" ] && [ -n "$fragment_floor" ] && [ -f "$fragment" ] && [ ! -L "$fragment" ] && version_is_not_after "$fragment_floor" "$marker_version" "$published" && version_is_not_after "$marker_version" "$consumer_version" "$published" && fragment_content_matches "$consumer/$name.md" "$fragment"; then finding OK "$name-fragment" "exact installed block with marker between required refresh $fragment_floor and consumer pin" "$marker_version" "none"; else finding ERROR "$name-fragment" "exact installed block with marker between required refresh ${fragment_floor:-unresolved} and consumer pin" "start=$starts end=$ends marker=${marker_version:-missing} pin=${consumer_version:-invalid} content=drift-or-unresolved" "repair markers or run the verified migration"; fi
+            else
+                finding ERROR "$name-fragment" "regular $name.md" "missing or unsafe" "run spade-onboard"
+            fi
+        done
+    fi
+    if command -v pandoc >/dev/null 2>&1; then
+        pandoc_line=$(pandoc --version 2>/dev/null | head -1)
+        pandoc_major=$(printf '%s' "$pandoc_line" | awk '{print $2}' | cut -d. -f1)
+        case "$pandoc_major" in ''|*[!0-9]*|0|1|2) finding WARN renderer "pandoc 3 or newer" "$pandoc_line" "upgrade pandoc" ;; *) finding OK renderer "pandoc 3 or newer" "$pandoc_line" "none" ;; esac
+    else
+        finding WARN renderer "pandoc 3 or newer" "not installed" "install pandoc to render local HTML"
+    fi
+    [ "$UNSUPPORTED" -eq 0 ] || return 2
+    [ "$ISSUES" -eq 0 ]
+}
+
+advance() {
+    # Contract: revalidate and advance one canonical clone under an update lock.
+    install="$1"
+    approved="$2"
+    validate_root "install root" "$install"
+    git_top=$(git -C "$install" rev-parse --show-toplevel 2>/dev/null || true)
+    [ -n "$git_top" ] && [ "$(cd "$git_top" && pwd -P)" = "$(cd "$install" && pwd -P)" ] || die "advance requires a source clone root" 2
+    git_dir=$(git -C "$install" rev-parse --git-dir 2>/dev/null) || die "advance cannot resolve the Git directory" 2
+    case "$git_dir" in /*) : ;; *) git_dir="$install/$git_dir" ;; esac
+    [ -d "$git_dir" ] && [ ! -L "$git_dir" ] || die "advance Git directory is unsafe" 2
+    printf '%s' "$approved" | grep -Eq '^[0-9a-f]{40,64}$' || die "--approved-sha must be an exact commit" 2
+    capability=$(manifest_path "$install")
+    canonical=$(frontmatter_value canonical_remote "$capability")
+    lock="$git_dir/spade-lifecycle-update.lock"
+    mkdir "$lock" 2>/dev/null || die "another lifecycle update holds the installation lock" 1
+    trap 'rmdir "$lock" 2>/dev/null || true' EXIT
+    trap 'exit 1' HUP INT TERM
+    [ "$(git -C "$install" remote get-url origin 2>/dev/null || true)" = "$canonical" ] || die "origin is not the canonical remote" 2
+    [ "$(git -C "$install" branch --show-current)" = "main" ] || die "installation clone is not on main" 2
+    [ -z "$(git -C "$install" status --porcelain)" ] || die "installation clone is dirty" 2
+    before=$(git -C "$install" rev-parse HEAD)
+    git -C "$install" fetch --prune origin main || die "canonical fetch failed" 1
+    candidate=$(git -C "$install" rev-parse 'refs/remotes/origin/main^{commit}') || die "canonical candidate cannot be resolved" 1
+    [ "$candidate" = "$approved" ] || die "approved commit changed; expected $approved, fetched $candidate" 2
+    [ "$(git -C "$install" remote get-url origin 2>/dev/null || true)" = "$canonical" ] || die "origin changed during update" 2
+    [ "$(git -C "$install" branch --show-current)" = "main" ] || die "branch changed during update" 2
+    [ -z "$(git -C "$install" status --porcelain)" ] || die "worktree changed during update" 2
+    [ "$(git -C "$install" rev-parse HEAD)" = "$before" ] || die "installed commit changed during update" 2
+    git -C "$install" merge-base --is-ancestor "$before" "$approved" || die "approved commit is not a fast-forward" 2
+    git -C "$install" merge --ff-only "$approved" || die "fast-forward to approved commit failed" 1
+    [ "$(git -C "$install" rev-parse HEAD)" = "$approved" ] || die "installed commit differs after update" 1
+    [ -z "$(git -C "$install" status --porcelain)" ] || die "installation clone is dirty after update" 1
+    [ -f "$install/setup" ] && [ -x "$install/setup" ] && [ ! -L "$install/setup" ] || die "setup is missing or unsafe after update" 1
+    SPADE_APPROVED_SHA="$approved" "$install/setup" || die "setup failed at approved commit $approved" 1
+    rmdir "$lock"
+    trap - EXIT HUP INT TERM
+    printf 'UPDATED|from=%s|to=%s\n' "$before" "$approved"
+}
+
+migrate() {
+    # Contract: execute ordered manifest units from validated real state.
+    install="$1"
+    consumer="$2"
+    target="$3"
+    tracker_mode="$4"
+    validate_root "install root" "$install"
+    validate_root "consumer root" "$consumer"
+    worktree=$(git -C "$consumer" rev-parse --show-toplevel 2>/dev/null || true)
+    [ -n "$worktree" ] || die "consumer root is not a Git worktree" 2
+    [ "$(cd "$worktree" && pwd -P)" = "$(cd "$consumer" && pwd -P)" ] || die "consumer root must be the worktree root" 2
+    [ -n "$(git -C "$consumer" branch --show-current)" ] || die "consumer worktree is detached" 2
+    capability=$(manifest_path "$install")
+    current=$(read_consumer_version "$consumer")
+    published=$(frontmatter_value published_versions "$capability")
+    version_is_published "$current" "$published" || die "consumer version is not a published migration start: $current" 2
+    [ -n "$target" ] || target=$(frontmatter_value version "$capability")
+    validate_version "$target"
+    version_is_published "$target" "$published" || die "target version is not published: $target" 2
+    manifest="$install/migrations/manifest.tsv"
+    [ -f "$manifest" ] && [ ! -L "$manifest" ] || die "migration manifest is missing or unsafe" 2
+    route=$(mktemp "${TMPDIR:-/tmp}/spade-route.XXXXXX")
+    trap 'rm -f "$route"' EXIT HUP INT TERM
+    probe="$current"
+    seen=""
+    while [ "$probe" != "$target" ]; do
+        row=$(awk -F'|' -v from="$probe" '$0 !~ /^#/ && $1 == from {print; count++} END {if (count != 1) exit 1}' "$manifest") || die "target $target is not uniquely forward-reachable from $current" 2
+        from=$(printf '%s' "$row" | cut -d'|' -f1)
+        to=$(printf '%s' "$row" | cut -d'|' -f2)
+        action=$(printf '%s' "$row" | cut -d'|' -f3)
+        paths=$(printf '%s' "$row" | cut -d'|' -f4)
+        case "$action" in pin|refresh_fragments|intent_mode_fragments) : ;; *) die "unsupported migration action: $action" 2 ;; esac
+        [ -n "$paths" ] || die "migration unit has no affected paths: $from" 2
+        case ",$paths," in *,.spade/version,) : ;; *) die "migration unit does not place version last: $from" 2 ;; esac
+        for relative in $(printf '%s' "$paths" | tr ',' ' '); do validate_consumer_path "$consumer" "$relative"; done
+        version_is_published "$to" "$published" || die "migration unit targets unpublished version: $to" 2
+        case ",$seen," in *,$to,*) die "migration manifest contains a cycle at $to" 2 ;; esac
+        seen="${seen:+$seen,}$to"
+        printf '%s\n' "$row" >> "$route"
+        probe="$to"
+    done
+    recover_journal "$consumer" "$install" "$target" "$manifest" "$tracker_mode"
+    current=$(read_consumer_version "$consumer")
+    checkpoint=$(lifecycle_state_path "$consumer" checkpoint)
+    if [ "$current" = "$target" ] && [ ! -e "$checkpoint" ]; then
+        rm -f "$route"
+        trap - EXIT HUP INT TERM
+        printf 'CURRENT|version=%s\n' "$current"
+        return 0
+    fi
+    migration_start="$current"
+    cumulative=""
+    if validate_checkpoint "$consumer" "$manifest" "$target" "$current"; then
+        cumulative="$CHECKPOINT_PATHS"
+        header=$(sed -n '1p' "$checkpoint")
+        migration_start=$(printf '%s' "$header" | cut -d'|' -f1)
+    elif [ -n "$(git -C "$consumer" status --porcelain)" ]; then
+        die "consumer worktree must be clean before migration" 2
+    fi
+    current=$(read_consumer_version "$consumer")
+    if [ "$current" = "$target" ]; then
+        rm -f "$checkpoint" "$route"
+        trap - EXIT HUP INT TERM
+        printf 'CURRENT|version=%s\n' "$current"
+        return 0
+    fi
+    while IFS='|' read -r from to action paths; do
+        [ -n "$from" ] || continue
+        current=$(read_consumer_version "$consumer")
+        [ "$current" = "$from" ] || continue
+        previous="$cumulative"
+        cumulative=$(path_union "$cumulative" "$paths")
+        run_unit "$install" "$consumer" "$from" "$to" "$action" "$paths" "$tracker_mode" "$target" "$migration_start" "$previous" "$cumulative"
+    done < "$route"
+    [ "$(read_consumer_version "$consumer")" = "$target" ] || die "prevalidated migration route did not reach $target" 1
+    rm -f "$checkpoint" "$route"
+    trap - EXIT HUP INT TERM
+}
+
+COMMAND="${1:-}"
+[ -n "$COMMAND" ] || { usage; exit 2; }
+shift
+INSTALL_ROOT=""
+CONSUMER_ROOT=""
+HOST="auto"
+TARGET=""
+TRACKER_MODE=""
+APPROVED_SHA=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --install-root) shift; [ $# -gt 0 ] || die "--install-root requires a value" 2; INSTALL_ROOT="$1" ;;
+        --consumer-root) shift; [ $# -gt 0 ] || die "--consumer-root requires a value" 2; CONSUMER_ROOT="$1" ;;
+        --host) shift; [ $# -gt 0 ] || die "--host requires a value" 2; HOST="$1" ;;
+        --to) shift; [ $# -gt 0 ] || die "--to requires a value" 2; TARGET="$1" ;;
+        --tracker-mode) shift; [ $# -gt 0 ] || die "--tracker-mode requires a value" 2; TRACKER_MODE="$1" ;;
+        --approved-sha) shift; [ $# -gt 0 ] || die "--approved-sha requires a value" 2; APPROVED_SHA="$1" ;;
+        -h|--help) usage; exit 0 ;;
+        *) die "unknown argument: $1" 2 ;;
+    esac
+    shift
+done
+[ -n "$INSTALL_ROOT" ] || die "--install-root is required" 2
+case "$COMMAND" in
+    diagnose) diagnose "$INSTALL_ROOT" "$CONSUMER_ROOT" "$HOST" ;;
+    migrate) [ -n "$CONSUMER_ROOT" ] || die "--consumer-root is required for migrate" 2; migrate "$INSTALL_ROOT" "$CONSUMER_ROOT" "$TARGET" "$TRACKER_MODE" ;;
+    advance) [ -n "$APPROVED_SHA" ] || die "--approved-sha is required for advance" 2; advance "$INSTALL_ROOT" "$APPROVED_SHA" ;;
+    *) usage; die "unknown command: $COMMAND" 2 ;;
+esac

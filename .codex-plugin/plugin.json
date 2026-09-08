@@ -1,0 +1,19 @@
+{
+  "name": "spade-framework",
+  "version": "5.1.0",
+  "description": "SPADE human-AI engineering workflow for Codex",
+  "author": {"name": "Fusebox HQ"},
+  "homepage": "https://github.com/fuseboxhq/spade-framework",
+  "repository": "https://github.com/fuseboxhq/spade-framework",
+  "license": "MIT",
+  "keywords": ["spade", "engineering", "workflow"],
+  "skills": "./.codex/skills/",
+  "interface": {
+    "displayName": "SPADE",
+    "shortDescription": "Auditable Scope to Evaluate engineering workflow",
+    "longDescription": "SPADE provides governed Scope, Plan, Approve, Deliver, and Evaluate workflows with Claude and Codex capability parity.",
+    "developerName": "Fusebox HQ",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"]
+  }
+}

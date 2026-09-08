@@ -1,0 +1,20 @@
+{
+  "name": "spade",
+  "version": "5.1.0",
+  "description": "SPADE Framework - 19 governed engineering skills, eight reviewer personas, one researcher, and six helpers for Claude and Codex.",
+  "author": {
+    "name": "Fusebox HQ"
+  },
+  "homepage": "https://github.com/fuseboxhq/spade-framework",
+  "repository": "https://github.com/fuseboxhq/spade-framework",
+  "license": "MIT",
+  "keywords": [
+    "spade",
+    "engineering",
+    "scope",
+    "plan",
+    "review",
+    "linear",
+    "workflow"
+  ]
+}

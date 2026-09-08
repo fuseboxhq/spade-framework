@@ -1,0 +1,208 @@
+consumer-owned prefix
+
+<!-- SPADE-FRAMEWORK-START v3.4.0 -->
+
+# SPADE Framework — Agent Operating Rules
+
+These rules define mandatory behaviour for AI agents using the SPADE framework
+in this project. They augment any existing agent instructions in this file.
+
+## The SPADE Loop
+
+Every unit of work follows five phases:
+
+    SCOPE → PLAN → APPROVE → DELIVER → EVALUATE
+
+Humans own Scope and Evaluate. AI owns Plan and Deliver. Approve is a human gate.
+You must never skip a phase or combine phases without explicit human instruction.
+
+**Exception — the fast-track path.** Trivial work (a typo, a one-line tweak,
+a config nudge) can use `/spade-quick` instead of the full loop. See the
+"Fast-Track Path" section below for the gate criteria. When in doubt, use
+the full loop.
+
+**Exception - governed non-shipping experiments.**
+One explicitly invoked, confirmed throwaway experiment may use
+`/spade-unhinged` only while every current and proposed path remains outside
+the canonical `docs/FRAMEWORK.md` § Security-sensitive path surface.
+It creates no SPADE lifecycle artefacts and is never approval to land or ship.
+Retained or shared work requires an `[unhinged]` Draft PR audit, which must be
+closed before the unchanged work re-enters `/spade-quick` or the full loop.
+
+**Entry point — the `/spade` orchestrator.** New work can start with `/spade`,
+which presents an autonomy picker (Deliver / Plan / Scope / Stub) and drives
+the loop from one locked Scope as far as the chosen level allows, halting on a
+tripwire. It does not change the loop or remove any gate, and routes trivial
+work to `/spade-quick`. See `docs/FRAMEWORK.md` § Autonomy Pipeline.
+
+## Phase Rules
+
+### 1. Scope (Human-Owned)
+- Never begin planning or writing code without a written Scope, a valid
+  fast-track gate pass, or an explicitly confirmed `/spade-unhinged`
+  non-shipping experiment inside its canonical path gate.
+- A Scope must include: statement of intent, acceptance criteria, and constraints.
+- If asked to "just do X" without a Scope, help define one first.
+- **Before scoping, check the fast-track gate.** If every criterion below
+  passes, invoke `/spade-quick` instead of `/spade-scope`.
+
+### 2. Plan (AI-Owned)
+- Produce a structured Plan (3-7 tasks) before writing any code.
+- Include: technical approach, dependencies, risks, delivery mode, testing strategy, delivery bundles, and per-task **execution posture**.
+- Execution posture is one of `test-first`, `characterization-first`, `refactor-first`, `spike`, or `straight-through`. Every task must declare one — there is no silent default. See `docs/FRAMEWORK.md#execution-posture` for the vocabulary.
+- Every task must declare a tracer-bullet outcome: the end-to-end behavior made usable, the highest practical test seam, and explicit blocking relationships.
+- Default to vertical slices that produce observable behavior.
+  An intentionally horizontal or preparatory task must explain why it stands alone and what vertical outcome it enables.
+- Delivery bundles map tasks to pull requests. Default to one bundle (one PR)
+  per Scope. Only split when tasks are genuinely independent and isolated
+  review or revert provides real value.
+- Document the Plan on the parent issue as a first-class artefact.
+- Create sub-issues with labels: `ai-planned`, `ai-delivered` or `human-delivery`.
+- Do NOT begin delivery until the Plan is approved by a human.
+
+### 3. Approve (Human Gate)
+- After producing a Plan, STOP and wait for human approval.
+- If rejected, apply `plan-rejected` label, revise, and re-present.
+- Do not begin delivery on a rejected or unapproved plan.
+- **Deliver-level exception.** The Deliver autonomy level (`/spade`) records a machine-attributed auto-approval and continues to code and an open PR.
+  It halts before merge unless a human completes Evaluate against the acceptance criteria, reviews the approach summary and diff, confirms all required repository checks have passed, then explicitly asks the agent to merge.
+  Every other path keeps the pre-code STOP gate above.
+- **Independent second opinion (optional).** The human may request `/spade-review` for an independent perspective before deciding.
+  A triage step casts from eight canonical persona lanes plus evidence-driven ad-hoc personas, under drop-with-cause, then merges structured findings by convergence into a single report.
+  Non-blocking, informational only - the review never gates approval or
+  delivery.
+
+### 4. Deliver (AI or Human)
+- Execute the approved Plan one **delivery bundle** at a time. A bundle is
+  one branch and one PR that closes every sub-issue assigned to it.
+- Within a bundle, work through sub-issues in dependency order, committing
+  as you go. Do not open a separate PR per sub-issue inside the same bundle.
+- Run tests and verify before marking sub-issues complete.
+- Record an immutable review base before changes and the final head after all changes and project-native checks.
+- Review the exact fixed range on two independent axes: Scope and acceptance-criteria conformance, and repository engineering-standard conformance.
+- A later commit makes head-bound review and command evidence stale and requires a fresh run.
+- If delivery reveals the Plan is wrong, stop and explain before continuing.
+
+### 5. Evaluate (Human-Owned)
+- Never mark a parent issue as Done. Only humans do this.
+- If asked to help evaluate, classify every criterion as diff-verifiable, runtime-verifiable, external-state, or human-only.
+- Runtime-verifiable criteria require fresh commands and results.
+  UI criteria require proportionate browser, screenshot, console, or network evidence.
+  External-state and human-only criteria remain explicitly open until verified by the appropriate owner.
+- Delivery Review findings and the evidence matrix support an agent recommendation of PASS, PARTIAL, or FAIL.
+  The human owns the final verdict, Done, and Ship.
+- After a human completes Evaluate against the acceptance criteria, reviews the approach summary and diff, and confirms all required repository checks have passed, an AI agent may merge the verified PR when explicitly asked.
+  Human ownership of Evaluate still permits delegated operation of the merge control under these conditions.
+- **Capture learnings.** After Evaluate — or anytime during delivery when the
+  team notices something worth remembering for future work — suggest
+  `/spade-learn` to record it under `.spade/learnings/`. `/spade-plan`
+  surfaces matching learnings automatically on the next related Scope.
+
+## Fast-Track Path (Small Work)
+
+Not every change deserves a Scope. The fast-track path handles trivial work
+— typo fixes, one-line tweaks, small config nudges, docs changes — through
+`/spade-quick`. On this path, the **PR description is the audit artefact**:
+no sub-issues, no separate Plan, no approval gate beyond PR review.
+
+**When a human describes a small fix, tweak, config nudge, or docs change,
+check the fast-track gate BEFORE invoking `/spade-scope`.** If every
+criterion below passes, run `/spade-quick`. Only fall back to the full
+loop if the gate fails.
+
+### The Gate — ALL must be true
+
+1. Single concern (one bug, one tweak, one touch-up)
+2. ≤ 50 lines of code changed total; hard stop above ~100
+3. One file, or a tight cluster in one module
+4. No new dependencies (package.json / go.mod / pyproject / Cargo.toml untouched)
+5. No schema, migration, or data-layer changes
+6. No architectural changes, no new patterns, no new abstractions
+7. No security-sensitive code (auth, crypto, secrets, permissions)
+8. No public API or interface breaking changes
+9. Reversible as one commit
+10. Existing tests cover the area (trivial extension is fine; new test
+    scaffolding is not)
+
+If *any* criterion fails, stop and invoke `/spade-scope` for the full loop.
+The gate is all-or-nothing — do not attempt to "partially" fast-track.
+
+### Linear tracking on the fast-track
+
+- Parent issue gets labels: `spade:quick`, one `type:*` label
+  (`type:bug`, `type:tweak`, `type:chore`, `type:docs`, `type:refactor`),
+  and `ai-delivered` or `human-delivery`.
+- **No sub-issues are created.** The parent issue IS the work unit.
+- The PR description is the audit trail. PR URL is posted as a comment on
+  the parent issue. Human owns the Done transition, as always.
+
+### Evaluating quick-path work
+
+`/spade-evaluate` on a `spade:quick`-labelled issue validates the PR
+directly (merged, CI green, checklist complete) instead of iterating
+sub-issues. If evaluation is PARTIAL: fixes go as new commits on the
+same branch if the PR hasn't merged, or as a new quick-path PR referencing
+the original if it has. **Sub-issue creation is forbidden on the quick
+path regardless of verdict.**
+
+## Architecture Constraints
+
+Before generating any Plan, read these files if they exist:
+- `ARCHITECTURE.md` — system architecture and constraints
+- `PATTERNS.md` — approved patterns and conventions
+- `ANTI-PATTERNS.md` — things you must not do
+
+Flag any conflicts between proposed solutions and these documents.
+
+## Linear Integration
+
+When Linear MCP is available, use it to:
+- Read Scopes from parent issues
+- Create sub-issues for Plans with labels and priorities (full loop only)
+- Update statuses: Scoped → Planning → Approval → Delivering → Evaluating → Done
+- Attach Plan documents as comments on parent issues
+- Apply `spade:quick` and `type:*` labels on fast-track items
+
+## Audit Trail
+
+Every durable or delivered repository change must use a recognised audit
+shape: the full-loop five-link chain, the quick-path PR artefact, or an
+`[unhinged]` Draft PR for a retained or shared non-shipping experiment.
+
+Full-loop work has a human-written Scope, documented Plan, Approval decision,
+delivery records with labels, and human Evaluation.
+
+For fast-track work, the PR description carries the equivalent audit
+trail — the gate checklist, the type classification, the verification
+notes, and the link to Linear (if any). A quick-path PR without a filled
+template is not a valid audit trail.
+
+The Unhinged Draft records the experiment intent, entry briefing,
+protected-path checks, complete changed-path inventory, verification, and the
+exact statement `not approved for merge`.
+It is experimentation evidence, not Scope, Plan, Approval, Evaluate, merge
+authorisation, Done, or Ship.
+The skill never merges or marks the draft ready.
+Retaining the work requires authoritative verified closure of the Draft PR and
+re-entry through `/spade-quick` or the full loop with unchanged work.
+The human continues to own Evaluate, Done, and Ship.
+
+Work that cannot be traced through its recognised audit shape must not be
+delivered.
+
+## What You Must Never Do
+
+- Begin coding without a documented Scope, a valid fast-track gate pass, or an
+  explicitly confirmed non-shipping `/spade-unhinged` experiment inside its
+  canonical path gate
+- Begin delivery without an approved Plan (on the full loop)
+- Mark a parent issue as Done
+- Skip documenting the Plan
+- Misuse `/spade-quick` for work that fails any gate criterion
+- Create sub-issues on the fast-track path
+- Merge, mark ready, or treat an `[unhinged]` Draft PR as shipping approval
+- Introduce technologies conflicting with ARCHITECTURE.md without flagging it
+- Assume organisational context you do not have
+<!-- SPADE-FRAMEWORK-END -->
+
+consumer-owned suffix

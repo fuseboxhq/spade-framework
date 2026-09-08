@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# SPADE Framework — Setup Script
+# Installs SPADE capabilities globally for Claude, Codex, or both hosts.
+#
+# Usage:
+#   ./setup                         # Install both supported hosts
+#   ./setup --host claude|codex|all # Install one or both hosts
+#   ./setup --help       # Show help
+#
+# After running this, use /spade-onboard in any project to initialise
+# SPADE files and fill in architecture docs.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION="$(awk '/^version:/{print $2; exit}' "$SCRIPT_DIR/src/CAPABILITIES.md")"
+CANONICAL_REMOTE="$(awk '/^canonical_remote:/{print $2; exit}' "$SCRIPT_DIR/src/CAPABILITIES.md")"
+
+# Colours for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+print_header() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}  SPADE Framework v${VERSION}${NC}"
+    echo -e "${BLUE}  A Human-AI Operating Model for Engineering Teams${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
+
+print_success() { echo -e "${GREEN}✓${NC} $1"; }
+print_warning() { echo -e "${YELLOW}!${NC} $1"; }
+print_info()    { echo -e "${BLUE}→${NC} $1"; }
+print_error()   { echo -e "${RED}✗${NC} $1"; }
+
+validate_relative_path() {
+    # Arguments: manifest path. Output: none. Exit non-zero if unsafe.
+    local path="$1"
+    case "$path" in
+        ""|/*|*".."*|*\\*) print_error "Unsafe manifest path: $path"; return 1 ;;
+    esac
+}
+
+assert_no_symlink_components() {
+    # Arguments: HOME-relative destination. Rejects symlinked ancestors.
+    local relative="$1"
+    local current="$HOME"
+    local component
+    local old_ifs="$IFS"
+    [ ! -L "$current" ] || { print_error "HOME is a symlink; refusing install"; return 1; }
+    IFS='/'
+    for component in $relative; do
+        [ -n "$component" ] || continue
+        current="$current/$component"
+        [ ! -L "$current" ] || { IFS="$old_ifs"; print_error "Symlinked destination component: $current"; return 1; }
+    done
+    IFS="$old_ifs"
+}
+
+manifest_contains_destination() {
+    # Arguments: manifest, HOME-relative path. Prints no output.
+    local manifest="$1"
+    local destination="$2"
+    awk -F'|' -v destination="$destination" '$3 == destination { found=1 } END { exit !found }' "$manifest"
+}
+
+cleanup_stale_owned() {
+    # Arguments: host, manifest. Removes only that host's undeclared entries.
+    local host="$1"
+    local manifest="$2"
+    local candidate relative
+    local candidates=()
+    case "$host" in
+        claude) candidates=("$HOME"/.claude/skills/spade* "$HOME"/.claude/skills/leads "$HOME"/.claude/skills/unslop "$HOME"/.claude/agents/spade-*.md "$HOME"/.spade/bin/spade-*) ;;
+        codex) candidates=("$HOME"/.codex/skills/spade* "$HOME"/.codex/skills/leads "$HOME"/.codex/skills/unslop "$HOME"/.spade/bin/spade-*) ;;
+        *) print_error "Unknown cleanup host: $host"; return 1 ;;
+    esac
+    for candidate in "${candidates[@]}"; do
+        [ -e "$candidate" ] || [ -L "$candidate" ] || continue
+        case "$candidate" in
+            "$HOME"/*) relative="${candidate#"$HOME"/}" ;;
+            *) print_error "Refusing out-of-root cleanup: $candidate"; return 1 ;;
+        esac
+        if [ -L "$candidate" ]; then
+            print_error "Refusing stale symlink: $candidate"
+            return 1
+        fi
+        if [ -d "$candidate" ]; then
+            if ! awk -F'|' -v prefix="$relative/" 'index($3, prefix) == 1 { found=1 } END { exit !found }' "$manifest"; then
+                rm -rf "$candidate"
+                print_info "Removed stale SPADE-owned directory: $relative"
+            else
+                if find "$candidate" -type l -print | grep -q .; then
+                    print_error "Refusing nested stale symlink: $candidate"
+                    return 1
+                fi
+                find "$candidate" -type f | while IFS= read -r nested; do
+                    nested_relative="${nested#"$HOME"/}"
+                    if ! manifest_contains_destination "$manifest" "$nested_relative"; then
+                        rm -f "$nested"
+                        print_info "Removed stale SPADE-owned file: $nested_relative"
+                    fi
+                done
+                find "$candidate" -depth -type d -empty -delete
+            fi
+        elif ! manifest_contains_destination "$manifest" "$relative"; then
+            rm -f "$candidate"
+            print_info "Removed stale SPADE-owned file: $relative"
+        fi
+    done
+}
+
+install_manifest() {
+    # Arguments: host name. Installs its exact manifest after full prevalidation.
+    local host="$1"
+    local manifest="$SCRIPT_DIR/generated/install/$host.manifest"
+    local kind source destination expected_digest source_path destination_path actual_digest
+    local source_is_global_clone=0
+    [ "$(cd "$SCRIPT_DIR" && pwd -P)" != "$(cd "$HOME" && printf '%s/.spade' "$(pwd -P)")" ] || source_is_global_clone=1
+    [ -f "$manifest" ] || { print_error "Missing install manifest: $manifest"; return 1; }
+
+    while IFS='|' read -r kind source destination expected_digest; do
+        [ "$kind" = "file" ] || { print_error "Unknown manifest record: $kind"; return 1; }
+        validate_relative_path "$source"
+        validate_relative_path "$destination"
+        source_path="$SCRIPT_DIR/$source"
+        [ -f "$source_path" ] && [ ! -L "$source_path" ] || { print_error "Unsafe or missing source: $source"; return 1; }
+        actual_digest=$(/usr/bin/shasum -a 256 "$source_path" | awk '{print $1}')
+        [ "$actual_digest" = "$expected_digest" ] || { print_error "Source digest mismatch: $source"; return 1; }
+        assert_no_symlink_components "$destination"
+    done < "$manifest"
+
+    cleanup_stale_owned "$host" "$manifest"
+    while IFS='|' read -r kind source destination expected_digest; do
+        source_path="$SCRIPT_DIR/$source"
+        destination_path="$HOME/$destination"
+        if [ "$source_is_global_clone" -eq 1 ] && [ "$destination" = ".spade/CAPABILITIES.md" ]; then
+            continue
+        fi
+        if [ -e "$destination_path" ] && [ "$source_path" -ef "$destination_path" ]; then
+            continue
+        fi
+        mkdir -p "$(dirname "$destination_path")"
+        cp "$source_path" "$destination_path"
+        case "$destination" in .spade/bin/*) chmod +x "$destination_path" ;; esac
+    done < "$manifest"
+
+    while IFS='|' read -r kind source destination expected_digest; do
+        source_path="$SCRIPT_DIR/$source"
+        destination_path="$HOME/$destination"
+        if [ "$source_is_global_clone" -eq 1 ] && [ "$destination" = ".spade/CAPABILITIES.md" ]; then
+            continue
+        fi
+        [ -f "$destination_path" ] && [ ! -L "$destination_path" ] || { print_error "Installed manifest mismatch: $destination"; return 1; }
+        cmp -s "$source_path" "$destination_path" || { print_error "Installed content mismatch: $destination"; return 1; }
+        actual_digest=$(/usr/bin/shasum -a 256 "$destination_path" | awk '{print $1}')
+        [ "$actual_digest" = "$expected_digest" ] || { print_error "Installed digest mismatch: $destination"; return 1; }
+    done < "$manifest"
+    write_install_receipt "$host" "$manifest"
+    print_success "$host global projection installed"
+}
+
+write_install_receipt() {
+    # Arguments: host and verified manifest. Records external immutable provenance.
+    local host="$1"
+    local manifest="$2"
+    local approved="${SPADE_APPROVED_SHA:-}"
+    local status="unverified"
+    local revision=""
+    local source_remote=""
+    local top=""
+    local receipt_dir="$HOME/.config/spade"
+    local tmp
+    if [ -n "$approved" ]; then
+        printf '%s' "$approved" | grep -Eq '^[0-9a-f]{40,64}$' || { print_error "SPADE_APPROVED_SHA must be an exact commit"; return 1; }
+        top=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)
+        [ -n "$top" ] && [ "$(cd "$top" && pwd -P)" = "$(cd "$SCRIPT_DIR" && pwd -P)" ] || { print_error "Approved setup source is not a Git root"; return 1; }
+        revision=$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || true)
+        source_remote=$(git -C "$SCRIPT_DIR" remote get-url origin 2>/dev/null || true)
+        [ "$revision" = "$approved" ] || { print_error "Approved setup SHA does not equal source HEAD"; return 1; }
+        [ "$source_remote" = "$CANONICAL_REMOTE" ] || { print_error "Approved setup source is not the canonical remote"; return 1; }
+        [ -z "$(git -C "$SCRIPT_DIR" status --porcelain)" ] || { print_error "Approved setup source is dirty"; return 1; }
+        status="approved-commit"
+    fi
+    mkdir -p "$receipt_dir"
+    tmp="$receipt_dir/$host.manifest.tmp.$$"
+    printf 'provenance|%s|%s|%s|%s\n' "$status" "$revision" "$source_remote" "$VERSION" > "$tmp"
+    cat "$manifest" >> "$tmp"
+    mv "$tmp" "$receipt_dir/$host.manifest"
+}
+
+install_global() {
+    local host="$1"
+    echo "Installing SPADE global projections for: $host"
+    echo ""
+    case "$host" in
+        claude) install_manifest claude ;;
+        codex) install_manifest codex ;;
+        all) install_manifest claude; install_manifest codex ;;
+        *) print_error "Unknown host: $host"; return 1 ;;
+    esac
+    echo ""
+    print_success "Global projections installed and verified."
+    echo ""
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}  SPADE installed successfully.${NC}"
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Next steps:"
+    echo ""
+    echo "  1. Open Claude Code or Codex in any project"
+    echo "  2. Run /spade-onboard to initialise SPADE and fill in architecture docs"
+    echo "  3. Commit the generated files so your team gets SPADE automatically"
+    echo ""
+}
+
+# Main
+print_header
+
+case "${1:-}" in
+    --help|-h)
+        echo "Usage:"
+        echo "  ./setup                         Install Claude and Codex projections"
+        echo "  ./setup --host claude|codex|all Install selected host projections"
+        echo "  ./setup --help   Show this help"
+        echo ""
+        echo "After installing, run /spade-onboard in your agent within any"
+        echo "project to initialise SPADE files and fill in architecture docs."
+        echo ""
+        ;;
+    "")
+        install_global all
+        ;;
+    --host)
+        [ "$#" -eq 2 ] || { print_error "--host requires claude, codex, or all"; exit 1; }
+        install_global "$2"
+        ;;
+    *)
+        print_error "Unknown option: $1"
+        echo "Run ./setup --help for usage."
+        exit 1
+        ;;
+esac

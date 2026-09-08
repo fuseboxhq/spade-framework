@@ -1,0 +1,12 @@
+{
+  "name": "spade-framework",
+  "interface": {"displayName": "SPADE Framework"},
+  "plugins": [
+    {
+      "name": "spade-framework",
+      "source": {"source": "local", "path": "./plugins/spade-framework"},
+      "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+      "category": "Productivity"
+    }
+  ]
+}

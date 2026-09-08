@@ -1,0 +1,30 @@
+{
+  "name": "spade-framework",
+  "owner": {
+    "name": "Fusebox HQ",
+    "url": "https://github.com/fuseboxhq"
+  },
+  "metadata": {
+    "description": "SPADE Framework marketplace - the SPADE plugin for Claude Code and Cowork.",
+    "version": "5.1.0"
+  },
+  "plugins": [
+    {
+      "name": "spade",
+      "source": ".",
+      "description": "Scope, Plan, Approve, Deliver, Evaluate - 19 skills, eight reviewer personas, one researcher, and six helpers.",
+      "version": "5.1.0",
+      "author": {
+        "name": "Fusebox HQ"
+      },
+      "homepage": "https://github.com/fuseboxhq/spade-framework",
+      "license": "MIT",
+      "keywords": [
+        "spade",
+        "engineering",
+        "review",
+        "workflow"
+      ]
+    }
+  ]
+}
