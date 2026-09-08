@@ -37,6 +37,18 @@ print_warning() { echo -e "${YELLOW}!${NC} $1"; }
 print_info()    { echo -e "${BLUE}→${NC} $1"; }
 print_error()   { echo -e "${RED}✗${NC} $1"; }
 
+file_digest() {
+    # Arguments: regular file path. Prints one SHA-256 digest.
+    if [ -x /usr/bin/shasum ]; then
+        /usr/bin/shasum -a 256 "$1" | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        print_error "No SHA-256 implementation is available"
+        return 1
+    fi
+}
+
 validate_relative_path() {
     # Arguments: manifest path. Output: none. Exit non-zero if unsafe.
     local path="$1"
@@ -129,7 +141,7 @@ install_manifest() {
         validate_relative_path "$destination"
         source_path="$SCRIPT_DIR/$source"
         [ -f "$source_path" ] && [ ! -L "$source_path" ] || { print_error "Unsafe or missing source: $source"; return 1; }
-        actual_digest=$(/usr/bin/shasum -a 256 "$source_path" | awk '{print $1}')
+        actual_digest=$(file_digest "$source_path")
         [ "$actual_digest" = "$expected_digest" ] || { print_error "Source digest mismatch: $source"; return 1; }
         assert_no_symlink_components "$destination"
     done < "$manifest"
@@ -157,7 +169,7 @@ install_manifest() {
         fi
         [ -f "$destination_path" ] && [ ! -L "$destination_path" ] || { print_error "Installed manifest mismatch: $destination"; return 1; }
         cmp -s "$source_path" "$destination_path" || { print_error "Installed content mismatch: $destination"; return 1; }
-        actual_digest=$(/usr/bin/shasum -a 256 "$destination_path" | awk '{print $1}')
+        actual_digest=$(file_digest "$destination_path")
         [ "$actual_digest" = "$expected_digest" ] || { print_error "Installed digest mismatch: $destination"; return 1; }
     done < "$manifest"
     write_install_receipt "$host" "$manifest"

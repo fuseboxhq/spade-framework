@@ -10,6 +10,18 @@ set -euo pipefail
 # Safety: all sources must be regular non-symlink files and every destination is
 # a fixed child of this repository. No path is accepted from user input.
 
+file_digest() {
+    # Arguments: regular file path. Prints one SHA-256 digest.
+    if [ -x /usr/bin/shasum ]; then
+        /usr/bin/shasum -a 256 "$1" | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        echo "No SHA-256 implementation is available" >&2
+        return 1
+    fi
+}
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_ROOT="$REPO_ROOT/src"
 MODE="write"
@@ -257,28 +269,31 @@ write_install_manifests() {
     : > "$tree/generated/install/codex.manifest"
     find "$tree/.claude/skills" -type f ! -name GENERATED.md | LC_ALL=C sort | while IFS= read -r file; do
         rel=${file#"$tree/.claude/skills/"}
-        printf 'file|.claude/skills/%s|.claude/skills/%s|%s\n' "$rel" "$rel" "$(/usr/bin/shasum -a 256 "$file" | awk '{print $1}')" >> "$tree/generated/install/claude.manifest"
+        digest=$(file_digest "$file") && [ -n "$digest" ] || fail "cannot calculate SHA-256 digest: $file"
+        printf 'file|.claude/skills/%s|.claude/skills/%s|%s\n' "$rel" "$rel" "$digest" >> "$tree/generated/install/claude.manifest"
     done
     find "$tree/.claude/agents" -type f ! -name GENERATED.md | LC_ALL=C sort | while IFS= read -r file; do
         rel=${file#"$tree/.claude/agents/"}
-        printf 'file|.claude/agents/%s|.claude/agents/%s|%s\n' "$rel" "$rel" "$(/usr/bin/shasum -a 256 "$file" | awk '{print $1}')" >> "$tree/generated/install/claude.manifest"
+        digest=$(file_digest "$file") && [ -n "$digest" ] || fail "cannot calculate SHA-256 digest: $file"
+        printf 'file|.claude/agents/%s|.claude/agents/%s|%s\n' "$rel" "$rel" "$digest" >> "$tree/generated/install/claude.manifest"
     done
     find "$tree/.codex/skills" -type f ! -name GENERATED.md | LC_ALL=C sort | while IFS= read -r file; do
         rel=${file#"$tree/.codex/skills/"}
-        printf 'file|.codex/skills/%s|.codex/skills/%s|%s\n' "$rel" "$rel" "$(/usr/bin/shasum -a 256 "$file" | awk '{print $1}')" >> "$tree/generated/install/codex.manifest"
+        digest=$(file_digest "$file") && [ -n "$digest" ] || fail "cannot calculate SHA-256 digest: $file"
+        printf 'file|.codex/skills/%s|.codex/skills/%s|%s\n' "$rel" "$rel" "$digest" >> "$tree/generated/install/codex.manifest"
     done
     frontmatter_value helpers | tr ',' '\n' | while IFS= read -r helper; do
-        digest=$(/usr/bin/shasum -a 256 "$REPO_ROOT/bin/$helper" | awk '{print $1}')
+        digest=$(file_digest "$REPO_ROOT/bin/$helper") && [ -n "$digest" ] || fail "cannot calculate SHA-256 digest: $REPO_ROOT/bin/$helper"
         printf 'file|bin/%s|.spade/bin/%s|%s\n' "$helper" "$helper" "$digest" >> "$tree/generated/install/claude.manifest"
         printf 'file|bin/%s|.spade/bin/%s|%s\n' "$helper" "$helper" "$digest" >> "$tree/generated/install/codex.manifest"
     done
-    digest=$(/usr/bin/shasum -a 256 "$SOURCE_ROOT/CAPABILITIES.md" | awk '{print $1}')
+    digest=$(file_digest "$SOURCE_ROOT/CAPABILITIES.md") && [ -n "$digest" ] || fail "cannot calculate SHA-256 digest: $SOURCE_ROOT/CAPABILITIES.md"
     printf 'file|src/CAPABILITIES.md|.spade/CAPABILITIES.md|%s\n' "$digest" >> "$tree/generated/install/claude.manifest"
     printf 'file|src/CAPABILITIES.md|.spade/CAPABILITIES.md|%s\n' "$digest" >> "$tree/generated/install/codex.manifest"
     for root in fragments migrations render templates; do
         find "$REPO_ROOT/$root" -type f | LC_ALL=C sort | while IFS= read -r file; do
             rel=${file#"$REPO_ROOT/"}
-            digest=$(/usr/bin/shasum -a 256 "$file" | awk '{print $1}')
+            digest=$(file_digest "$file") && [ -n "$digest" ] || fail "cannot calculate SHA-256 digest: $file"
             printf 'file|%s|.spade/%s|%s\n' "$rel" "$rel" "$digest" >> "$tree/generated/install/claude.manifest"
             printf 'file|%s|.spade/%s|%s\n' "$rel" "$rel" "$digest" >> "$tree/generated/install/codex.manifest"
         done
@@ -297,7 +312,8 @@ write_plugin_payload_manifests() {
     for root in skills agents; do
         find "$tree/$root" -type f | LC_ALL=C sort | while IFS= read -r file; do
             rel=${file#"$tree/"}
-            printf 'file|%s|%s\n' "$rel" "$(/usr/bin/shasum -a 256 "$file" | awk '{print $1}')" >> "$claude_manifest"
+            digest=$(file_digest "$file") && [ -n "$digest" ] || fail "cannot calculate SHA-256 digest: $file"
+            printf 'file|%s|%s\n' "$rel" "$digest" >> "$claude_manifest"
         done
     done
     for file in "$tree/.claude-plugin/plugin.json" "$tree/.claude-plugin/marketplace.json" "$tree/hooks/hooks.json" "$SOURCE_ROOT/CAPABILITIES.md"; do
@@ -305,21 +321,25 @@ write_plugin_payload_manifests() {
             "$tree"/*) rel=${file#"$tree/"} ;;
             *) rel=src/CAPABILITIES.md ;;
         esac
-        printf 'file|%s|%s\n' "$rel" "$(/usr/bin/shasum -a 256 "$file" | awk '{print $1}')" >> "$claude_manifest"
+        digest=$(file_digest "$file") && [ -n "$digest" ] || fail "cannot calculate SHA-256 digest: $file"
+        printf 'file|%s|%s\n' "$rel" "$digest" >> "$claude_manifest"
     done
     frontmatter_value helpers | tr ',' '\n' | while IFS= read -r helper; do
-        printf 'file|bin/%s|%s\n' "$helper" "$(/usr/bin/shasum -a 256 "$REPO_ROOT/bin/$helper" | awk '{print $1}')" >> "$claude_manifest"
+        digest=$(file_digest "$REPO_ROOT/bin/$helper") && [ -n "$digest" ] || fail "cannot calculate SHA-256 digest: $REPO_ROOT/bin/$helper"
+        printf 'file|bin/%s|%s\n' "$helper" "$digest" >> "$claude_manifest"
     done
     for root in fragments migrations render templates; do
         find "$REPO_ROOT/$root" -type f | LC_ALL=C sort | while IFS= read -r file; do
             rel=${file#"$REPO_ROOT/"}
-            printf 'file|%s|%s\n' "$rel" "$(/usr/bin/shasum -a 256 "$file" | awk '{print $1}')" >> "$claude_manifest"
+            digest=$(file_digest "$file") && [ -n "$digest" ] || fail "cannot calculate SHA-256 digest: $file"
+            printf 'file|%s|%s\n' "$rel" "$digest" >> "$claude_manifest"
         done
     done
     LC_ALL=C sort -o "$claude_manifest" "$claude_manifest"
     find "$codex_root" -type f ! -path "$codex_manifest" | LC_ALL=C sort | while IFS= read -r file; do
         rel=${file#"$codex_root/"}
-        printf 'file|%s|%s\n' "$rel" "$(/usr/bin/shasum -a 256 "$file" | awk '{print $1}')" >> "$codex_manifest"
+        digest=$(file_digest "$file") && [ -n "$digest" ] || fail "cannot calculate SHA-256 digest: $file"
+        printf 'file|%s|%s\n' "$rel" "$digest" >> "$codex_manifest"
     done
     LC_ALL=C sort -o "$codex_manifest" "$codex_manifest"
 }

@@ -4,6 +4,18 @@ set -euo pipefail
 # End-to-end fixture for exact Claude and Codex global installation.
 # Uses an isolated HOME and never writes to the developer's real host state.
 
+file_digest() {
+    # Arguments: regular file path. Prints one SHA-256 digest.
+    if [ -x /usr/bin/shasum ]; then
+        /usr/bin/shasum -a 256 "$1" | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        echo "No SHA-256 implementation is available" >&2
+        return 1
+    fi
+}
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/spade-install-test.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
@@ -14,7 +26,7 @@ assert_manifest() {
     host="$1"
     while IFS='|' read -r kind source destination expected_digest; do
         [ "$kind" = file ] || { echo "FAIL: malformed $host manifest" >&2; exit 1; }
-        actual_digest=$(/usr/bin/shasum -a 256 "$home/$destination" 2>/dev/null | awk '{print $1}')
+        actual_digest=$(file_digest "$home/$destination")
         cmp "$REPO_ROOT/$source" "$home/$destination" >/dev/null && [ "$actual_digest" = "$expected_digest" ] || {
             echo "FAIL: $host manifest mismatch at $destination" >&2
             exit 1
