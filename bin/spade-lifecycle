@@ -718,7 +718,7 @@ check_inventory_dir() {
     if [ "$kind" = "directory" ]; then
         actual=$(find "$directory" -mindepth 1 -maxdepth 1 -type d \( -name 'spade*' -o -name 'leads' -o -name 'unslop' \) -exec basename {} \; | LC_ALL=C sort)
     else
-        actual=$(find "$directory" -maxdepth 1 -type f -name 'spade-review-*.md' -exec basename {} .md \; | LC_ALL=C sort)
+        actual=$(find "$directory" -maxdepth 1 -type f -name 'spade-review*.md' -exec basename {} .md \; | LC_ALL=C sort)
     fi
     if [ "$actual" = "$expected" ]; then
         finding OK "$check" "exact declared inventory" "matched at $directory" "none"

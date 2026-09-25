@@ -1,0 +1,45 @@
+# SPADE per-repo configuration.
+# Read by SPADE skills to avoid prompting for team/project on every invocation.
+
+# Operating mode: linear | local | hybrid. An explicit value always wins
+# over auto-detect. See docs/FRAMEWORK.md § Operating Modes.
+mode: linear
+
+linear:
+  team: Example Team
+  team_id: 55069140-fef8-4f1a-8d04-726227e0292b
+  project: SPADE
+  project_id: 576ca5be-0c4a-4a88-b10b-8fd1501a6f82
+  default_assignee: me
+
+# Autonomy pipeline default for /spade (PS-1861). Omit `default` to always
+# show the picker. See docs/FRAMEWORK.md § Autonomy Pipeline.
+autonomy:
+  default: deliver        # deliver | plan | scope | stub - omit to show the picker
+  size_ceiling:
+    tasks: 7              # plan-size tripwire: halt for human review beyond this
+    files: 12
+  deliver:
+    max_open_prs: 3        # per-project cap: Deliver halts before opening a 4th open auto-PR
+    merge: on-green        # human (default) | on-green - enforced by bin/spade-guard when hooks are live
+
+# Mechanical guards (Claude host only). Read by bin/spade-guard; see
+# docs/FRAMEWORK.md § Mechanical guards. Editing this block is itself a
+# guarded action while a Deliver run is active.
+guards:
+  deny_stage_all: true    # deny git add -A / --all / . here; lints mutate tracked source live
+
+# Notes:
+# - This repo is the SPADE framework itself. The loop governs its own work.
+# - Parent Linear issues are Scopes; Plans live in .spade/plans/ and are posted on the Scope issue.
+
+# Horizon roadmap binding (opt-in) — uncomment in a repo whose Linear project
+# is fronted by a Horizon roadmap board. When present, SPADE treats every
+# Scope as belonging to a Linear Milestone (a Horizon board Item, 1:1) and
+# leaves Plan task sub-issues unmilestoned, so the milestone rollup counts
+# roadmap Scopes, not implementation tasks. See docs/FRAMEWORK.md § Horizon
+# Roadmap Binding. This repo (the framework itself) is not Horizon-bound, so
+# the block stays commented out here.
+# horizon:
+#   board_url: https://horizon.example.com/t/<team>/p/<project>  # optional, for deep links
+#   enforce_scope_milestone: warn   # warn (default) | off — omit to mean warn

@@ -29,7 +29,7 @@ file|.codex/skills/spade/references/FRAMEWORK.md|.codex/skills/spade/references/
 file|.codex/skills/unslop/SKILL.md|.codex/skills/unslop/SKILL.md|9b48512f174487df19ff4fd54980dff285140afb9b0b05eb05f4797504cbff8e
 file|.codex/skills/unslop/references/FRAMEWORK.md|.codex/skills/unslop/references/FRAMEWORK.md|20b94945b40ad162721483565a8a15de2af4ced1ad5759b5813992b4e1612724
 file|bin/spade-guard|.spade/bin/spade-guard|2e31de33b6091d4249b2f15963e35e6ef23d9bfcd90f8b2c37394711c4456cbd
-file|bin/spade-lifecycle|.spade/bin/spade-lifecycle|c174393e90ca6b88392632a08b768e41f7d9dc5768bbfe6e74ac6208a21e9c4b
+file|bin/spade-lifecycle|.spade/bin/spade-lifecycle|012f39aceef0dff5b0f971ab4e722082797f7239305ee7c5d3afca476beff2db
 file|bin/spade-marker-replace|.spade/bin/spade-marker-replace|a219cc21c92a1044eca8373e69f42aac99571eb42715dd28e998c4a428bd3164
 file|bin/spade-render|.spade/bin/spade-render|f343bbee6dfac71ad3d19d5fea34eb7193fb10460d09cd3a278b425bfa871a85
 file|bin/spade-update-check|.spade/bin/spade-update-check|a71387b262d54ea9f0a9c9a85f7106dad30e77b0e0d7170b2b313f2fb0894c01
