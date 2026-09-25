@@ -1,193 +1,136 @@
 ---
 name: spade-onboard
-description: Onboard a project into the SPADE framework. Creates AGENTS.md, CLAUDE.md, architecture templates, and example files if they don't exist, then analyses the codebase to fill in architecture docs. Use when someone says "onboard this project", "set up SPADE", "spade init", or when starting SPADE in a new repo. Also use when architecture docs are still templates with placeholder comments.
+description: Onboard or refresh SPADE in a consumer repository. Use when asked to set up SPADE, fill its project context, capture project intent, or add a verified end-to-end change check.
 ---
 
-## Update Check
+# SPADE onboard
 
-Before doing anything else, run `~/.spade/bin/spade-update-check` using Bash.
-Show the output to the user if it is non-empty.
-If the script does not exist or fails, skip silently and continue with the skill.
+Create the minimum durable project context SPADE needs.
+The result must be safe to run twice without duplicate markers, config blocks, files, or prompts about already-settled content.
 
-# SPADE Onboard
+## Refuse self-onboarding
 
-You are onboarding a project into the SPADE framework. Your job is twofold:
-
-1. **Initialise** — create the SPADE project files if they don't exist
-2. **Analyse** — explore the codebase and help fill in architecture docs
-
-## Self-onboard guard (stop here)
-
-**Before anything else**, check whether the current working directory is the
-SPADE framework repository itself:
+Before reading the provisioning reference or changing anything, run this check:
 
 ```bash
-if { [ -f "src/skills/spade-onboard/SKILL.md" ] || [ -f ".claude/skills/spade-onboard/SKILL.md" ] || [ -f ".codex/skills/spade-onboard/SKILL.md" ] || [ -f "skills/spade-onboard/SKILL.md" ]; } && [ -f "fragments/AGENTS-section.md" ]; then
-  echo "This looks like the SPADE framework repository."
-  echo "Refusing to self-onboard — the framework's own AGENTS.md / CLAUDE.md"
-  echo "are the canonical source, not fragment-wrapped copies."
+if [ -f src/CAPABILITIES.md ] && [ -d src/skills ]; then
+  echo "This is the SPADE framework repository; refusing to self-onboard."
   exit 0
 fi
 ```
 
-If the guard triggers, stop and tell the human:
+Both paths must exist for the guard to fire.
+If it fires, stop because this repository's root files are the source.
 
-> This is the SPADE framework repo itself — no onboarding needed. Its
-> `AGENTS.md`, `CLAUDE.md`, and architecture docs are already the source
-> of truth. If you wanted to onboard a different project, `cd` into it
-> and run `/spade-onboard` there.
+## Mode Resolution
 
-Do not proceed to the steps below when in the framework repo.
+Resolve or confirm `linear` or `local` once from `references/FRAMEWORK.md` § Operating modes before calling `list_teams` or `list_projects`.
+Persist that choice in `.spade/config`; a later run preserves a valid existing mode.
 
+## Provision project files
 
-## Step 0: Initialise SPADE Project Files
+Read `references/project-files.md` completely before writing files.
+Resolve the installed version from the nearest regular `CAPABILITIES.md`, with `~/.spade/CAPABILITIES.md` and then `~/.spade/src/CAPABILITIES.md` as global fallbacks.
+Use that version for both markers and `.spade/version`.
 
-Before provisioning begins, read `references/project-files.md` completely and follow it through its observable report. Do not load it during the self-onboard guard.
+Create `.spade/scopes/`, `.spade/plans/`, and `.spade/learnings/` when absent.
 
-## Step 1: Analyse the Codebase
+For a new `.spade/config`, use `AskUserQuestion` to confirm `linear` when Linear is available and the human selects the team and project.
+Otherwise choose `local`.
+If Linear is chosen, use `list_teams` and `list_projects` to record the selected names and IDs.
+Write the defaults from the reference, including `autonomy.default: deliver`, human merge, the 7 task and 12 file ceiling, and 3 maximum open PRs.
+Do not add a handoff block.
 
-Before asking the human anything, explore the project:
+On a later run, preserve valid human choices and add only missing required keys.
+Do not duplicate YAML keys or replace a configured team or project without human confirmation.
 
-1. Read the directory structure (top two levels)
-2. Read any existing README, docs, or configuration files
-3. Look at package.json, requirements.txt, go.mod, Cargo.toml, or equivalent
-   to understand the dependency landscape
-4. Look at Dockerfiles, docker-compose files, or infrastructure configs
-5. Look at CI/CD configuration (.github/workflows, .gitlab-ci.yml, etc.)
-6. Read a sample of source files to understand coding patterns
-7. Check for existing test files and testing patterns
-8. Look for authentication/authorisation patterns
-9. Check for database migrations or schema files
+Write `.spade/version` in this exact form:
 
-## Step 2: Present Your Understanding
-
-Summarise what you have found and present it to the human for validation:
-
-- "Here is what I understand about your project. Please correct anything
-  that is wrong or incomplete."
-
-Cover:
-- What the project does (purpose, users)
-- Infrastructure and hosting
-- Tech stack (languages, frameworks, databases, queues, etc.)
-- Code organisation and patterns
-- Testing approach
-- Deployment pipeline
-- Security considerations
-- External integrations
-
-## Step 3: Fill In ARCHITECTURE.md
-
-Based on the validated understanding, generate the content for ARCHITECTURE.md.
-Follow the template structure already in the file, but replace all placeholder
-comments with real content.
-
-Present each section to the human for approval before moving to the next.
-They know things about the system that code analysis cannot reveal (planned
-migrations, deprecated components, infrastructure not visible in the repo).
-
-## Step 4: Fill In PATTERNS.md
-
-Document the coding patterns, conventions, and approved libraries visible in
-the codebase. Focus on:
-
-- Patterns that are consistently used (these are the established conventions)
-- Libraries that appear across multiple files (these are the approved choices)
-- Naming conventions, error handling approaches, logging patterns
-- How tests are structured and what testing libraries are used
-- How services communicate (REST, gRPC, events, etc.)
-
-Ask the human: "Are there patterns you want to enforce that are not yet
-consistently applied? These are also worth documenting."
-
-## Step 5: Fill In ANTI-PATTERNS.md
-
-This requires the most human input because anti-patterns often come from
-painful experience rather than code analysis. Ask the human directly:
-
-- "What mistakes have been made in this project that you want to prevent?"
-- "Are there technologies or approaches that have been tried and rejected?"
-- "What would you warn a new team member (or AI agent) not to do?"
-- "Are there dependencies or patterns that should never be introduced?"
-
-Document each anti-pattern with a clear rationale. The rationale matters
-because it helps AI agents understand why the constraint exists, not just
-that it exists.
-
-## Step 6: Verify and Commit
-
-After all three documents are filled in:
-
-1. Show a summary of what was documented
-2. Ask the human to review and confirm
-3. Suggest they commit the changes:
-
-```bash
-git add AGENTS.md CLAUDE.md ARCHITECTURE.md PATTERNS.md ANTI-PATTERNS.md .claude/ .spade/
-git commit -m "Onboard project with SPADE framework"
+```text
+spade_version=<installed version>
 ```
 
-Remind them: "These documents are living. Update them as your architecture
-evolves. The better the context, the better the AI-generated Plans."
+Insert or refresh the framework fragments with the installed helper:
 
-Also remind them: "Once these files are committed, teammates who clone
-this repo will have SPADE working automatically — they just need the
-global skills install (`~/.spade/setup`)."
+```bash
+~/.spade/bin/spade-marker-replace \
+  "$PWD/AGENTS.md" \
+  ~/.spade/fragments/AGENTS-section.md \
+  "$SPADE_VERSION"
 
-## Why This Matters
+~/.spade/bin/spade-marker-replace \
+  "$PWD/CLAUDE.md" \
+  ~/.spade/fragments/CLAUDE-section.md \
+  "$SPADE_VERSION"
+```
 
-The quality of AI-generated Plans is directly proportional to the quality of
-the architecture context. A blank ARCHITECTURE.md means the AI will guess.
-A detailed one means the AI will propose solutions that fit your world. This
-onboarding step is the single highest-leverage thing you can do to make SPADE
-work well.
+The helper owns the marker contract:
 
-## Quality Checks
+- An absent target is created with one marker pair.
+- An unmarked target keeps its content and gains one block.
+- One existing block is replaced and restamped.
+- Exit 2 means mismatched markers and exit 3 means duplicate blocks.
 
-Before finishing, verify:
+On exit 2 or 3, leave the target unchanged, show the error, and ask the human to repair the markers.
+Never edit around a rejected marker block.
 
-- [ ] All SPADE project files exist (AGENTS.md, CLAUDE.md, architecture docs)
-- [ ] INTENT.md scaffolded as a template (onboard does not fill it — that is
-      `/spade-intent`'s job; the human composes project intent)
-- [ ] ARCHITECTURE.md has no placeholder comments remaining
-- [ ] Tech stack table is complete with actual technologies and versions
-- [ ] PATTERNS.md reflects what the code actually does, not aspirations
-- [ ] ANTI-PATTERNS.md has rationale for every entry
-- [ ] All three documents are specific enough that an AI agent reading them
-      could propose a solution that fits this project
-- [ ] The human has reviewed and approved all content
+## Learn the project
 
-## If Linear MCP is Available
+Read the README, existing project docs, manifests, CI, deployment config, representative source, tests, schemas, and security boundaries.
+Find the commands people actually use to build, test, run, and exercise the product.
 
-Also help the human set up the Linear integration:
+Separate evidence from intent.
+Code and config can prove the current stack and behavior.
+They cannot prove who the project serves, why a trade-off was chosen, or what the team refuses to build.
 
-1. Confirm the team and project from `.spade/config` are correct, and make
-   sure the file carries the autonomy and guard defaults:
+Present a short project understanding and ask the human to correct missing or wrong claims before writing prose that depends on them.
 
-   ```yaml
-   autonomy:
-     default: deliver      # deliver | plan | scope | stub
-     deliver:
-       merge: human        # human | on-green (agent merges on green checks; Claude host guard enforces)
-   guards:
-     deny_stage_all: false # true denies git add -A / --all / .
-   ```
+## Write project context
 
-   Explain that `on-green` is the human's call and that the guard blocks
-   agent edits to this file once a Deliver run is active
-   (`docs/FRAMEWORK.md` § Mechanical guards).
-2. Check if the SPADE statuses exist in their Linear workflow
-   (Scoped, Planning, Approval, Delivering, Evaluating, Done)
-3. Check if the SPADE labels exist
-   (ai-planned, ai-delivered, human-delivery, plan-rejected, needs-arch-review)
-4. If not, advise the human on how to create them
+Create `ARCHITECTURE.md`, `PATTERNS.md`, and `ANTI-PATTERNS.md` from the reference templates when absent.
+When a file already has project-specific content, preserve it and propose only evidence-backed additions or corrections.
+When it is still a template, replace its prompts with confirmed project facts.
 
-## Output
+Keep these files focused on decisions and gotchas that the repository cannot make obvious:
 
-The onboarding is complete when:
-- All SPADE project files are created
-- ARCHITECTURE.md is filled in and validated
-- PATTERNS.md is filled in and validated
-- ANTI-PATTERNS.md is filled in and validated
-- The human understands how to use the SPADE skills
-- Linear integration is configured (if applicable)
+- `ARCHITECTURE.md` records boundaries, data flow, ownership, deployment constraints, and consequential decisions.
+- `PATTERNS.md` records conventions a contributor could otherwise miss and the reasons to follow them.
+- `ANTI-PATTERNS.md` records rejected approaches, recurring mistakes, and the reason each is banned.
+
+Do not write a directory tour, dependency inventory, or prose version of the code.
+Leave an unknown out or mark it as a question instead of inventing it.
+
+## Compose INTENT.md with the human
+
+The human owns intent.
+Draft `INTENT.md` from repository evidence and the conversation, then probe only the gaps that evidence cannot answer.
+Cover the problem, users, what the project does, success, non-goals, and maturity.
+Never infer a goal or non-goal from implementation alone.
+
+Show the complete draft and obtain human confirmation before creating or materially refreshing `INTENT.md`.
+On a later run, preserve confirmed content and update only what the human changes.
+
+## Add project verification when missing
+
+First search the project docs and existing skills for a documented way to verify a change end to end.
+Do nothing when a usable procedure already exists.
+
+If it is missing, derive exact build, test, run, and app-driving commands from repository evidence.
+Resolve placeholders such as ports, URLs, fixtures, credentials, and expected visible outcomes.
+Run safe commands when practical, but do not claim an unobserved flow works.
+
+Show the proposed verification procedure and use `AskUserQuestion` to confirm every command before writing it.
+After confirmation, write the reference template to both `.claude/skills/verify/SKILL.md` and `.agents/skills/verify/SKILL.md` with the confirmed commands.
+Create parent directories as needed.
+Never overwrite an existing verification skill without explicit approval.
+
+## Finish
+
+Verify that both marker files contain exactly one matching block, required config keys occur once, `.spade/version` matches the installed version, project docs contain no invented claims, and any verification skill has confirmed commands.
+Report the chosen mode and every file created, refreshed, preserved, or skipped.
+
+End with:
+
+- **Blocked on me**: unanswered intent, verification, or marker decisions, or `nothing`.
+- **Changed**: the files written or refreshed.
+- **Found**: unknowns, existing conflicts, or missing verification evidence, or `nothing`.

@@ -1,71 +1,32 @@
-# Consumer Migration Contract
+# Consumer migration contract
 
-Read this reference completely before invoking `spade-lifecycle migrate`.
+`migrations/manifest.tsv` is the ordered migration registry.
+Each non-comment row has `from_version|to_version|action|affected_paths`.
+The capability manifest supplies the supported floor, current version, and published versions.
+Unknown, malformed, duplicate, cyclic, future, below-floor, or unreachable states fail closed.
 
-## Authority
-
-`migrations/manifest.tsv` is the ordered migration-unit registry.
-Each non-comment row contains exactly four pipe-separated fields:
-
-```text
-from_version|to_version|action|affected_paths
-```
-
-The capability manifest supplies the supported version floor, current version, and complete published-version set.
-Every published transition from the floor to current must have one unique row.
-Unknown, malformed, below-floor, future, duplicate, cyclic, or unreachable versions fail closed.
-
-## Unit semantics
-
-Each row is one discrete unit.
-The action is an allowlisted operation implemented by the bounded lifecycle helper, not executable content from the manifest.
-
-- `pin` changes only the consumer version pin.
-- `refresh_fragments` refreshes the two bounded marker blocks and then changes the version pin.
-- `intent_mode_fragments` refreshes marker blocks, scaffolds `INTENT.md` only when absent, records a validated tracker mode only when absent, and then changes the version pin.
+Actions are names implemented by `spade-lifecycle`, never shell from the manifest.
+`pin` changes only `.spade/version`.
+`refresh_fragments` refreshes the two marker blocks and then the version pin.
+`intent_mode_fragments` is a historical action that refreshes the blocks, creates `INTENT.md` only when absent, records a validated tracker mode only when absent, and then changes the pin.
 
 The affected-path list is exact.
-No unit may read or write outside those consumer-relative paths.
-Every existing path component and target must be a regular non-symlink file.
+The helper rejects paths outside the consumer root and unsafe symlinks.
 
-## Transaction and resume behavior
+For each unit, the helper:
 
-The helper performs each unit in this order:
+1. re-reads the consumer version and requires the declared starting version;
+2. copies only affected paths to an isolated stage;
+3. applies the allowlisted action and verifies the complete staged result;
+4. backs up affected consumer paths;
+5. replaces non-version files and `.spade/version` last;
+6. rolls the whole unit back if replacement fails;
+7. re-reads and verifies committed state.
 
-1. Re-read the real consumer version and require the row's `from_version`.
-2. Copy only affected paths into an isolated stage.
-3. Apply the allowlisted action to the stage.
-4. Verify the complete staged postcondition.
-5. Back up the affected consumer paths.
-6. Replace non-version files, then replace `.spade/version` last.
-7. Roll back the whole unit if any replacement fails.
-8. Re-read the real version and verify the committed postcondition.
+A verified unit is the resume checkpoint.
+The bounded journal lives below the resolved Git directory and cannot override live worktree, tracker, version, index, or file state.
+Malformed or duplicate framework markers stop before mutation for human repair.
 
-A completed unit is the resume checkpoint.
-Before the first replacement, the helper atomically persists a bounded journal below the worktree's resolved Git directory, outside the tracked consumer tree.
-Every journal field and path must match the applicable prevalidated manifest unit before recovery can read, copy, or remove a file.
-The consumer pin, Git index or prior external checkpoint, live unit postcondition, and freshly recomputed staged output must corroborate the journal.
-The journal can never override real tracker, worktree, version, or file state.
-An interrupted run begins again by diagnosing the actual tracker, worktree, installed commit, capability manifest, and consumer version.
-
-## Historical state rules
-
-The registry explicitly covers every published starting state from v1.0.0.
-Version-only releases remain explicit `pin` units so the chain is reviewable and testable.
-Fragment-changing releases use `refresh_fragments`.
-The v1.7.0 transition also scaffolds human-owned intent and requires a tracker mode validated by the calling skill.
-
-`INTENT.md` is create-if-absent and is never AI-filled or overwritten.
-Malformed or duplicate framework markers stop before commit for human repair.
-
-## Postconditions
-
-After the final unit:
-
-- `.spade/version` equals the installed capability version.
-- Each consumer fragment has exactly one matching marker pair.
-- `mode:` is one of `linear`, `local`, or `hybrid` when the historical transition requires it.
-- Diagnostics report the installed revision, helper inventory, tracker mode, consumer pin, fragment state, and renderer status from live state.
-
+After the final unit, the consumer pin matches the installed capability version and diagnostics report live fragment, inventory, tracker, version, and renderer state.
 Show changed files to the human.
-Do not create a consumer commit unless explicitly asked.
+Do not commit consumer changes unless explicitly asked.

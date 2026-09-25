@@ -5,12 +5,12 @@ description: Write a SPADE Plan from a locked Scope and take it to approval. Use
 
 ## Mode Resolution
 
-Read `.spade/config` if it exists and resolve `mode:` per `docs/FRAMEWORK.md` § Operating modes.
+Read `.spade/config` if it exists and resolve `mode:` per `references/FRAMEWORK.md` § Operating modes.
 With no config, work as `local`.
 
 # SPADE Plan
 
-Turn a locked Scope into a Plan a human can approve in a few minutes, then record the approval (`docs/FRAMEWORK.md` § Plan and § Approve).
+Turn a locked Scope into a Plan a human can approve in a few minutes, then record the approval (`references/FRAMEWORK.md` § Plan and § Approve).
 Done means: `.spade/plans/<scope-key>.md` exists in the format below with an approval line, and in `linear` mode the Plan is posted on the Scope issue and the issue is in Delivering.
 
 The Plan is for the human who approves it, not a script for the agent that delivers it.
@@ -24,7 +24,7 @@ Put effort into the approach, the forks you rejected, and the risks; keep tasks 
 
 ## The Plan
 
-Use the format in `docs/FRAMEWORK.md` § Plan.
+Use the format in `references/FRAMEWORK.md` § Plan.
 
 - **Approach.** What will be built and how, the patterns and libraries it uses, and the forks you rejected, each with the reason it lost.
 - **Risks.** Assumptions that could be wrong and what changes if they are. Name any conflict with ARCHITECTURE.md or ANTI-PATTERNS.md here; a conflict needs the human's explicit approval.
@@ -52,5 +52,5 @@ Do not start delivery before approval.
 
 ## Finish
 
-End with the run summary (`docs/FRAMEWORK.md` § Run summary).
+End with the run summary (`references/FRAMEWORK.md` § Run summary).
 Under Blocked on me, say whether the Plan is waiting for approval; after approval, the next step is `/spade` to deliver.

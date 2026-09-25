@@ -6,7 +6,7 @@ description: Research an external question through an isolated read-only agent. 
 # SPADE research
 
 Read `.spade/config` if present.
-Follow `docs/FRAMEWORK.md` § Research.
+Follow `references/FRAMEWORK.md` § Research.
 
 ## Run the research
 

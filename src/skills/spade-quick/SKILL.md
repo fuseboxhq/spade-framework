@@ -5,7 +5,7 @@ description: Fast-track path for small, low-risk changes that should land withou
 
 ## Mode Resolution
 
-Read `.spade/config` if it exists and resolve `mode:` per `docs/FRAMEWORK.md` § Operating modes.
+Read `.spade/config` if it exists and resolve `mode:` per `references/FRAMEWORK.md` § Operating modes.
 With no config, work as `local` and make no tracker calls.
 
 # SPADE Quick

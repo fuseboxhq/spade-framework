@@ -88,7 +88,7 @@ After advancement, verify HEAD equals the approved SHA, rerun `diagnose`, and cl
 ## Migrate the consumer
 
 Read `references/migrations.md` completely.
-Resolve the tracker mode from the live `.spade/config` under `docs/FRAMEWORK.md` § Operating modes.
+Resolve the tracker mode from the live `.spade/config` under `references/FRAMEWORK.md` § Operating modes.
 Normalize the legacy alias to `linear` rather than treating it as another mode.
 
 Run:

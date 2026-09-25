@@ -17,7 +17,7 @@ Use `--refresh` only to review existing entries for stale or contradictory guida
 Public learnings live at `.spade/learnings/YYYY-MM-DD-<slug>.md`.
 Private learnings live at `.spade/learnings/private/YYYY-MM-DD-<slug>.md` and must remain gitignored.
 
-Use the frontmatter from `docs/FRAMEWORK.md` § Learnings:
+Use the frontmatter from `references/FRAMEWORK.md` § Learnings:
 
 ```yaml
 ---

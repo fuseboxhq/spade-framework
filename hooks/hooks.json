@@ -1,5 +1,5 @@
 {
-  "description": "SPADE mechanical guards. Deterministic checks over tool input and named local state; the rules are defined in docs/FRAMEWORK.md § Mechanical guards. Inert outside a repository with .spade/config.",
+  "description": "SPADE mechanical guards. Deterministic checks over tool input and named local state; the rules are defined in references/FRAMEWORK.md § Mechanical guards. Inert outside a repository with .spade/config.",
   "hooks": {
     "SessionStart": [
       {

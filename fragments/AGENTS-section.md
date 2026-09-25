@@ -2,7 +2,7 @@
 
 This repository uses SPADE.
 Humans own the intent (the Scope) and the decision to ship; agents plan, build, review, and verify in between.
-The skills carry the procedure and `docs/FRAMEWORK.md` is the reference, so this section only holds what applies every session.
+The skills carry the procedure, and every SPADE skill ships the full reference as `references/FRAMEWORK.md`, so this section only holds what applies every session.
 
 ## What needs the loop
 
@@ -13,7 +13,7 @@ The skills carry the procedure and `docs/FRAMEWORK.md` is the reference, so this
 ## Keep going or stop
 
 When a step does not need the human, keep going and put status notes in the same message as your next action.
-Stop and ask only when you cannot continue without the human, when a SPADE tripwire fires (`docs/FRAMEWORK.md` § Tripwires), or before anything destructive or outside this repository: deleting data, force-pushing, rewriting history, or changing shared systems.
+Stop and ask only when you cannot continue without the human, when a SPADE tripwire fires (`references/FRAMEWORK.md` § Tripwires in any SPADE skill), or before anything destructive or outside this repository: deleting data, force-pushing, rewriting history, or changing shared systems.
 Write every halt where the work is tracked as well as in the session.
 
 ## Hard lines

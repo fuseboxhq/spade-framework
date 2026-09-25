@@ -5,12 +5,12 @@ description: Check delivered work against its Scope's acceptance criteria with f
 
 ## Mode Resolution
 
-Read `.spade/config` if it exists and resolve `mode:` per `docs/FRAMEWORK.md` § Operating modes.
+Read `.spade/config` if it exists and resolve `mode:` per `references/FRAMEWORK.md` § Operating modes.
 With no config, work as `local`.
 
 # SPADE Evaluate
 
-Judge the delivered head against the Scope, not against the Plan or the agent's own account of the work (`docs/FRAMEWORK.md` § Evaluate).
+Judge the delivered head against the Scope, not against the Plan or the agent's own account of the work (`references/FRAMEWORK.md` § Evaluate).
 Done means: an evaluation with one evidence row per acceptance criterion and a verdict, recorded by you when every row is met with fresh evidence, otherwise recommended to the human and recorded by them.
 
 ## Quick-path items
@@ -48,7 +48,7 @@ Apply `/unslop` to the prose, not to commands, SHAs, or the table values.
 ## Recording the verdict
 
 When every row is met with evidence fresh on the reviewed head and no blocking review finding is open, record the verdict yourself.
-When the work has a PR, write `.spade/guard/reviewed-head-<pr>` through `{{SPADE_SHELL}}` as one line, `<reviewed head sha> <VERDICT>`, so the merge guard can check it (`docs/FRAMEWORK.md` § Mechanical guards).
+When the work has a PR, write `.spade/guard/reviewed-head-<pr>` through `{{SPADE_SHELL}}` as one line, `<reviewed head sha> <VERDICT>`, so the merge guard can check it (`references/FRAMEWORK.md` § Mechanical guards).
 
 Otherwise ask the human through `{{SPADE_ASK_USER}}`: *PASS*, *PARTIAL*, or *FAIL*, with your recommendation first and a plain statement when the evidence does not support PASS.
 
@@ -63,4 +63,4 @@ If the evaluation surfaced a gotcha a future Plan should know, offer `/spade-lea
 
 ## Finish
 
-End with the run summary (`docs/FRAMEWORK.md` § Run summary).
+End with the run summary (`references/FRAMEWORK.md` § Run summary).

@@ -9,6 +9,15 @@ import sys
 from pathlib import Path
 
 
+def declared_skill_count() -> int:
+    """Count the skills declared in src/CAPABILITIES.md, the inventory authority."""
+    manifest = (Path(__file__).resolve().parents[2] / "src" / "CAPABILITIES.md").read_text(encoding="utf-8")
+    match = re.search(r"^skills: (.+)$", manifest, re.MULTILINE)
+    if not match:
+        fail("src/CAPABILITIES.md declares no skills")
+    return len(match.group(1).split(","))
+
+
 def fail(message: str) -> None:
     """Print one validator error and terminate with a failing status."""
 
@@ -54,8 +63,9 @@ def validate(root: Path, *, require_folder_name: bool = True) -> None:
     if root not in skills_path.parents or not skills_path.is_dir():
         fail("skills path escapes the plugin root or does not exist")
     skill_dirs = sorted(path.name for path in skills_path.iterdir() if path.is_dir())
-    if len(skill_dirs) != 19 or any(not (skills_path / name / "SKILL.md").is_file() for name in skill_dirs):
-        fail("Codex plugin must expose exactly 19 skill directories with SKILL.md")
+    expected = declared_skill_count()
+    if len(skill_dirs) != expected or any(not (skills_path / name / "SKILL.md").is_file() for name in skill_dirs):
+        fail(f"Codex plugin must expose exactly {expected} skill directories with SKILL.md")
 
     unsupported = sorted(set(manifest).intersection({"hooks"}))
     if unsupported:

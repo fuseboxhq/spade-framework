@@ -5,12 +5,12 @@ description: Create or edit a SPADE Scope - the human-owned statement of intent,
 
 ## Mode Resolution
 
-Read `.spade/config` if it exists and resolve `mode:` per `docs/FRAMEWORK.md` § Operating modes.
+Read `.spade/config` if it exists and resolve `mode:` per `references/FRAMEWORK.md` § Operating modes.
 With no config, work as `local` and suggest `/spade-onboard` once.
 
 # SPADE Scope
 
-Help the human write a Scope a Plan can be built and judged against (`docs/FRAMEWORK.md` § Scope).
+Help the human write a Scope a Plan can be built and judged against (`references/FRAMEWORK.md` § Scope).
 Done means: the Scope is locked by the human and filed (a Linear issue in status Scoped, or `.spade/scopes/<slug>.md`), and every acceptance criterion can be checked by a command or a named piece of evidence.
 
 When `/spade` invokes this skill it has already routed small work to `/spade-quick`; when invoked directly and the work is clearly quick-sized, say so and offer `/spade-quick`.
@@ -62,12 +62,12 @@ Apply `/unslop` to the prose before filing.
 ## Filing
 
 - **`linear` mode.** Create or update the parent issue with the Scope as its description and status Scoped. Ask who owns it only if `.spade/config` has no `default_assignee`. In a Horizon-bound repository (`horizon:` in `.spade/config`), list the project's Milestones, recommend the best fit, and attach the one the human picks; if none fits, warn that the roadmap item is probably missing and file without one. Never create a Milestone.
-- **`local` mode.** Write `.spade/scopes/<slug>.md` with the frontmatter in `docs/FRAMEWORK.md` § Local layout. Mint `id` once as `sp-<stem>-<suffix>`: the stem is the slugified title cut to 40 characters, the suffix five random `[a-z0-9]` characters. Refuse a slug that already exists or does not match the slug grammar.
+- **`local` mode.** Write `.spade/scopes/<slug>.md` with the frontmatter in `references/FRAMEWORK.md` § Local layout. Mint `id` once as `sp-<stem>-<suffix>`: the stem is the slugified title cut to 40 characters, the suffix five random `[a-z0-9]` characters. Refuse a slug that already exists or does not match the slug grammar.
 - **Editing.** Given an issue id, URL, or Scope file, load it, point out the weak or missing fields, fix them with the human, and update it in place. The `id` never changes.
 
 When pandoc is installed, render a local Scope with `spade-render <file>` and give the `file://` link.
 
 ## Finish
 
-End with the run summary (`docs/FRAMEWORK.md` § Run summary).
+End with the run summary (`references/FRAMEWORK.md` § Run summary).
 Under Changed, give the Scope link; the next step is `/spade-plan`, or `/spade` to carry on.

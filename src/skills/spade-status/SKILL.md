@@ -11,7 +11,7 @@ If the script does not exist or fails, skip silently and continue with the skill
 
 ## Mode Resolution
 
-Resolve the operating mode once from `docs/FRAMEWORK.md` § Operating modes before calling `list_issues` or reading local Scope files.
+Resolve the operating mode once from `references/FRAMEWORK.md` § Operating modes before calling `list_issues` or reading local Scope files.
 The resolved mode selects Linear or `.spade/scopes/` as the source of record.
 
 # SPADE status

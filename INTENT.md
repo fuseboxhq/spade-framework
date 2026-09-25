@@ -1,5 +1,5 @@
 ---
-last_reviewed: 2026-07-17
+last_reviewed: 2026-09-25
 ---
 
 # Project Intent
@@ -29,16 +29,10 @@ anyone ships to customers.
 
 ## What it does
 
-SPADE is a convention-plus-skills framework. It defines a five-phase loop —
-Scope → Plan → Approve → Deliver → Evaluate (→ Ship) — with explicit
-ownership: humans own the edges (intent and Ship), AI owns the middle
-(planning and execution), and the Approve and Evaluate gates are human on the
-Plan and Scope levels and machine-recorded, human-reviewable on the Deliver
-level when mechanical guards are live. It ships as Claude Code skills
-(`/spade-*`), markdown architecture templates, an `AGENTS.md` enforcement layer
-any agent reads, Claude-host guard hooks, and Linear integration. Every unit of
-work gets a traceable chain from human-written Scope through AI Plan, an
-Approval record, delivery records, and an Evaluation record.
+SPADE is a convention-plus-skills framework.
+It defines the loop Scope, Plan, Approve, Deliver, Evaluate, Ship: humans own the intent and the decision to ship, and agents plan, build, review, and verify in between against the human's acceptance criteria.
+It ships as a small set of skills for Claude Code and Codex, a short AGENTS.md section every agent loads, one framework reference, Claude-host guard hooks for the rules that need no judgement, and Linear integration.
+Every delivered change traces from Scope through Plan, approval, PR, and Evaluate record.
 
 ## Success
 
@@ -65,6 +59,5 @@ next Plan.
 
 ## Maturity
 
-In production and dogfooding itself — SPADE governs its own development
-through the same loop it provides.
-The core loop is stable; the framework is at v5.1.0 with mechanical guards on the Claude host, Deliver as the default autonomy level, agent-recorded Evaluate when every criterion is machine-verifiable, merge by policy, classified capture-first Leads, governed non-shipping experiments, pre-Scope frontier discovery, host-neutral canonical authoring, full Claude/Codex projections, strict card-based Plans, resumable verified runs, two-axis delivery review, Done that follows a recorded PASS verdict, and human-owned Ship.
+In production and dogfooding itself: SPADE governs its own development through the loop it provides.
+The framework is at v6.0.0, which cut the always-loaded rules and skill procedure down to what current models need, kept the guards, merge policy, and independent review, and moved progress tracking into the Plan file.

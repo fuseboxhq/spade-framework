@@ -67,7 +67,9 @@ sources = list((root / "src").rglob("*.md")) + list((root / "fragments").glob("*
 bad = []
 for path in sources:
     for ref in re.findall(r"§ ([A-Z][A-Za-z -]*[A-Za-z])", path.read_text()):
-        if ref not in headings:
+        words = ref.split()
+        # Prose follows the section name, so accept the longest heading prefix.
+        if not any(" ".join(words[:n]) in headings for n in range(len(words), 0, -1)):
             bad.append(f"{path.relative_to(root)}: § {ref}")
 for item in bad:
     print(f"  FAIL: unknown FRAMEWORK section {item}")

@@ -27,7 +27,7 @@ The frontmatter is deliberately flat so the existing standard-library parser and
 All four paths expose the same thirteen skills, one reviewer agent, one researcher, and five helpers.
 Parity is capability-level for skills, personas, and the researcher: host registration metadata may differ, but the behavior source, gates, and expected outcomes do not.
 Mechanical guards are the one asymmetry.
-The Claude plugin payload ships `hooks/hooks.json` and the `spade-guard` helper as command hooks; the global Claude install ships the helper without registering hooks; Codex has no hook surface and keeps prose-only enforcement with the previous approval model (`docs/FRAMEWORK.md` § Mechanical guards).
+The Claude plugin payload ships `hooks/hooks.json` and the `spade-guard` helper as command hooks; the global Claude install ships the helper without registering hooks; Codex has no hook surface and keeps prose-only enforcement with the previous approval model (`references/FRAMEWORK.md` § Mechanical guards).
 
 ## Context budgets
 

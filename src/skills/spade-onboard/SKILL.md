@@ -24,7 +24,7 @@ If it fires, stop because this repository's root files are the source.
 
 ## Mode Resolution
 
-Resolve or confirm `linear` or `local` once from `docs/FRAMEWORK.md` § Operating modes before calling `list_teams` or `list_projects`.
+Resolve or confirm `linear` or `local` once from `references/FRAMEWORK.md` § Operating modes before calling `list_teams` or `list_projects`.
 Persist that choice in `.spade/config`; a later run preserves a valid existing mode.
 
 ## Provision project files

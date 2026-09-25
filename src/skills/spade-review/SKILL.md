@@ -6,7 +6,7 @@ description: Get an independent second opinion on a SPADE Scope, Plan, or delive
 # SPADE review
 
 Read `.spade/config` if present.
-Follow `docs/FRAMEWORK.md` § Review as the single definition of review policy.
+Follow `references/FRAMEWORK.md` § Review as the single definition of review policy.
 
 ## Modes
 
@@ -20,7 +20,7 @@ Check whether the intent, acceptance criteria, approach, risks, and tasks agree 
 
 Resolve and record exact base and head commit SHAs before dispatch.
 Give every reviewer the same fixed `base..head` range.
-Ask the two questions from `docs/FRAMEWORK.md` § Review:
+Ask the two questions from `references/FRAMEWORK.md` § Review:
 
 1. Does the diff meet every acceptance criterion?
 2. Does the diff meet the repository's own standards, including its architecture, patterns, anti-patterns, conventions, and checks?
@@ -31,7 +31,7 @@ A commit after the review makes the report stale.
 ## Choose reviewers
 
 Use one general reviewer by default.
-Add a lens reviewer only when the change carries the matching risk in the table in `docs/FRAMEWORK.md` § Review.
+Add a lens reviewer only when the change carries the matching risk in the table in `references/FRAMEWORK.md` § Review.
 Do not copy the table here or add reviewers for generic coverage.
 Run added lens reviewers in parallel when the host supports it.
 
