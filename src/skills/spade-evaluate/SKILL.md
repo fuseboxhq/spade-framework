@@ -11,13 +11,13 @@ With no config, work as `local`.
 # SPADE Evaluate
 
 Judge the delivered head against the Scope, not against the Plan or the agent's own account of the work (`references/FRAMEWORK.md` § Evaluate).
-Done means: an evaluation with one evidence row per acceptance criterion and a verdict, recorded by you when every row is met with fresh evidence, otherwise recommended to the human and recorded by them.
+Done means: an evaluation with one evidence row per acceptance criterion and a verdict, recorded by you when guards are live and every row is met with fresh evidence, otherwise recommended to the human and recorded by them.
 
 ## Quick-path items
 
 For a `spade:quick` issue or PR there is no Scope or Plan.
-Check that the PR is merged (or open) with green checks, that its template is filled in, and that the diff still fits the quick path: no new dependency, no schema, migration, or data-layer change, no auth, crypto, secrets, or permission change, no public interface break.
-PASS closes the issue.
+Check the PR's checks, that its template is filled in, and that the diff still fits the quick path: no new dependency, no schema, migration, or data-layer change, no auth, crypto, secrets, or permission change, no public interface break.
+PASS needs the PR merged with green checks, and closes the issue; for a PR still open, report what is left and leave the issue open.
 PARTIAL means a small follow-up: new commits on the same PR if it is still open, or a new `/spade-quick` PR that references it if merged.
 FAIL means the quick path was misused: say which line it crossed and recommend taking the work through `/spade`.
 
@@ -47,8 +47,8 @@ Apply `/unslop` to the prose, not to commands, SHAs, or the table values.
 
 ## Recording the verdict
 
-When every row is met with evidence fresh on the reviewed head and no blocking review finding is open, record the verdict yourself.
-When the work has a PR, write `.spade/guard/reviewed-head-<pr>` through `{{SPADE_SHELL}}` as one line, `<reviewed head sha> <VERDICT>`, so the merge guard can check it (`references/FRAMEWORK.md` § Mechanical guards).
+Record the verdict yourself only when guards are live (`.spade/guard/$CLAUDE_CODE_SESSION_ID/live` exists), every row is met with evidence fresh on the reviewed head, and no blocking review finding is open.
+When you record it and the work has a PR, write `.spade/guard/reviewed-head-<pr>` through `{{SPADE_SHELL}}` as one line, `<reviewed head sha> <VERDICT>`, so the merge guard can check it (`references/FRAMEWORK.md` § Mechanical guards).
 
 Otherwise ask the human through `{{SPADE_ASK_USER}}`: *PASS*, *PARTIAL*, or *FAIL*, with your recommendation first and a plain statement when the evidence does not support PASS.
 

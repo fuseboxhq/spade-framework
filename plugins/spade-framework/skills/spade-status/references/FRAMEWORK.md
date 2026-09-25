@@ -84,7 +84,7 @@ SPADE creates no per-task sub-issues.
 
 ### Approve
 
-On the Plan level, `/spade-plan` ends by asking the human to approve, revise, or reject.
+On the Plan level, after the review, the human is asked to approve, revise, or reject.
 Approval records a line in the Plan file and, in `linear` mode, moves the issue to Delivering.
 A rejected Plan is revised against the human's feedback and shown again.
 Approval is a real check: does it fit the architecture, are there gaps, are the assumptions sound, is the breakdown sensible.
@@ -115,7 +115,7 @@ External-state and human-only criteria (a stakeholder sign-off, a production met
 Findings from the Delivery Review feed the verdict.
 
 The verdict is PASS, PARTIAL, or FAIL.
-The agent records it itself when every row is met with fresh evidence on the reviewed head and the Delivery Review has no open blocking finding.
+The agent records it itself when guards are live (§ Mechanical guards), every row is met with fresh evidence on the reviewed head, and the Delivery Review has no open blocking finding.
 Otherwise the agent recommends a verdict and the human records it.
 Whoever records PASS moves the Scope to Done; PARTIAL, FAIL, or any unconfirmed row leaves it in Evaluating.
 
@@ -183,7 +183,7 @@ Deliver writes code and opens a PR without stopping at the Approve gate.
 Everything above still applies; this is what it adds.
 
 1. **Scope, Plan, review.** Author and lock the Scope, write the Plan, then run one `/spade-review` pass over Scope and Plan together. A blocking finding is tripwire 2.
-2. **Auto-approve.** Record `Approved by Deliver auto-approval, <date>` in the Plan with the review result and a one-line architecture check. This approves the Plan only.
+2. **Auto-approve.** Record `Approved by Deliver auto-approval, <date>` in the Plan with the review result and a one-line architecture check. This approves the Plan only. In `linear` mode post the Plan on the Scope issue and move it to Delivering.
 3. **Arm the guard.** If `.spade/guard/$CLAUDE_CODE_SESSION_ID/live` exists, guards are live. Write `deliver` to `.spade/guard/$CLAUDE_CODE_SESSION_ID/mode` and remove it on every exit (halt, abort, merge).
 4. **Fix the base.** Record the exact base commit SHA the review range will start from.
 5. **Build.** Deliver the tasks (§ Deliver), checking tripwire 6 as the diff takes shape.

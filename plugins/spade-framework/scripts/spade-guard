@@ -183,7 +183,7 @@ protected_category() {
         echo "production data"; return
     fi
     case "$lower" in
-        .spade/config|.spade/handoff.local|.claude/settings.json|.claude/settings.local.json|hooks/hooks.json|src/hooks/hooks.json|bin/spade-guard|scripts/spade-guard|plugins/spade-framework/scripts/spade-guard|*/.claude/settings.json|*/.claude/settings.local.json|*/hooks/hooks.json|*/bin/spade-guard|*/scripts/spade-guard)
+        .spade/config|.claude/settings.json|.claude/settings.local.json|hooks/hooks.json|src/hooks/hooks.json|bin/spade-guard|scripts/spade-guard|plugins/spade-framework/scripts/spade-guard|*/.claude/settings.json|*/.claude/settings.local.json|*/hooks/hooks.json|*/bin/spade-guard|*/scripts/spade-guard)
             echo "permission widening"; return ;;
     esac
 
@@ -251,7 +251,7 @@ protected_category() {
         echo "Helm"; return
     fi
     case "$lower" in
-        agents.md|claude.md|patterns.md|anti-patterns.md|intent.md|docs/framework.md|.spade/config|.spade/handoff.local|.spade/version)
+        agents.md|claude.md|patterns.md|anti-patterns.md|intent.md|docs/framework.md|.spade/config|.spade/version)
             echo "framework governance, execution, and fetch surfaces"; return ;;
     esac
     if is_framework_repo; then

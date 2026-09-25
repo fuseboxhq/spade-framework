@@ -38,7 +38,7 @@ When pandoc is installed, render it with `spade-render <file>` and give the `fil
 
 ## Approval
 
-When `/spade` runs at the Deliver level, it records the auto-approval itself; stop after writing the Plan.
+When `/spade` invokes this skill, stop after writing the Plan: `/spade` runs the review first and then either asks for approval as below (Plan level) or records its own (Deliver level).
 
 Otherwise, show the Plan and ask through `request_user_input when available, otherwise a concise direct question`: *Approve*, *Approve with notes*, *Revise*, or *Reject*.
 Before asking, give your own one-line read on each of: architecture fit, gaps, assumptions, task breakdown.

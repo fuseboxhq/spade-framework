@@ -23,12 +23,12 @@ Rejected forks:
 
 ## Tasks
 
-- [ ] 1. Core definition - done when `docs/FRAMEWORK.md`, `AGENTS.md`, `CLAUDE.md`, and both fragments are rewritten to the v6 model; verify with byte counts against AC 1 and 3.
-- [ ] 2. Loop skills - done when `spade`, `spade-scope`, `spade-plan`, `spade-quick`, and `spade-evaluate` are rewritten, `spade-approve` is folded into `spade-plan`, and `continuity.md` is deleted; verify each SKILL.md is at most 12 KiB.
-- [ ] 3. Review and research - done when `spade-review` uses one `spade-reviewer` agent with lenses, the eight persona files are gone, and `spade-research` plus the researcher carry no model pins or think-hard lines; verify with grep.
-- [ ] 4. Supporting skills - done when `spade-onboard` (absorbing INTENT.md, gotchas-first docs, and a verification-skill draft), `spade-status` (absorbing listing), `spade-learn`, `spade-update`, `leads`, and `unslop` are trimmed and frontier, unhinged, handoff, intent, and list are deleted; verify with the skill inventory.
-- [ ] 5. Inventory, tests, and release - done when CAPABILITIES, projections, installers, guard, lints, tests, eval harness, migration, CHANGELOG, README, ARCHITECTURE, PATTERNS, ANTI-PATTERNS, INTENT, and examples match v6; verify with `scripts/lint/run-all.sh` (only the environmental pwsh and release-history failures may remain).
+- [x] 1. Core definition - done when `docs/FRAMEWORK.md`, `AGENTS.md`, `CLAUDE.md`, and both fragments are rewritten to the v6 model; verify with byte counts against AC 1 and 3.
+- [x] 2. Loop skills - done when `spade`, `spade-scope`, `spade-plan`, `spade-quick`, and `spade-evaluate` are rewritten, `spade-approve` is folded into `spade-plan`, and `continuity.md` is deleted; verify each SKILL.md is at most 12 KiB.
+- [x] 3. Review and research - done when `spade-review` uses one `spade-reviewer` agent with lenses, the eight persona files are gone, and `spade-research` plus the researcher carry no model pins or think-hard lines; verify with grep.
+- [x] 4. Supporting skills - done when `spade-onboard` (absorbing INTENT.md, gotchas-first docs, and a verification-skill draft), `spade-status` (absorbing listing), `spade-learn`, `spade-update`, `leads`, and `unslop` are trimmed and frontier, unhinged, handoff, intent, and list are deleted; verify with the skill inventory.
+- [x] 5. Inventory, tests, and release - done when CAPABILITIES, projections, installers, guard, lints, tests, eval harness, migration, CHANGELOG, README, ARCHITECTURE, PATTERNS, ANTI-PATTERNS, INTENT, and examples match v6; verify with `scripts/lint/run-all.sh` (only the environmental pwsh and release-history failures may remain).
 
 ## Halts
 
-None yet.
+None. The guard edits (bin/spade-guard, .spade/config) only narrow protection and were made under Kevin's direct instruction; the merge is left to him.
