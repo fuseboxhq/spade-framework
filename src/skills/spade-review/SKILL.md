@@ -36,6 +36,8 @@ Do not copy the table here or add reviewers for generic coverage.
 Run added lens reviewers in parallel when the host supports it.
 
 Dispatch each review through `{{SPADE_ISOLATED_AGENT}}` to the `spade-reviewer` agent.
+When the host ships the reviewer as `references/personas/spade-reviewer.md` instead of a registered agent, put that file's instructions at the top of the prompt.
+When ANTI-PATTERNS.md has many rules, split them across reviewers so each rule gets a clean look.
 Reviewers work independently and do not receive another reviewer's findings.
 
 ## Build the prompt

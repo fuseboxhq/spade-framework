@@ -76,7 +76,7 @@ policy_files=(
     "$REPO_ROOT/docs/FRAMEWORK.md"
     "$REPO_ROOT/fragments/AGENTS-section.md"
     "$REPO_ROOT/skills/spade/SKILL.md"
-    "$REPO_ROOT/skills/spade-approve/SKILL.md"
+    "$REPO_ROOT/skills/spade-plan/SKILL.md"
 )
 
 policy_files_readable=true
@@ -97,7 +97,7 @@ if [ "$policy_files_readable" = true ]; then
     fi
 fi
 
-for skill in spade spade-approve spade-update; do
+for skill in spade spade-plan spade-update; do
     if ! cmp -s "$REPO_ROOT/skills/$skill/SKILL.md" "$REPO_ROOT/.claude/skills/$skill/SKILL.md"; then
         echo "  FAIL: skills/$skill/SKILL.md differs from its .claude mirror"
         fail=$((fail + 1))

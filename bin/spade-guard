@@ -146,7 +146,7 @@ is_framework_repo() {
 }
 
 protected_category() {
-    # Arguments: project-relative path, mode (quick|unhinged|deliver).
+    # Arguments: project-relative path, mode (quick|deliver).
     # Prints the first matching category name or nothing.
     # The category list mirrors docs/FRAMEWORK.md § Security-sensitive path
     # surface, which stays the definition; this is a path-shaped approximation
@@ -266,7 +266,7 @@ guard_protected_path() {
     mode_file="$session_dir/mode"
     [ -f "$mode_file" ] || return 0
     mode=$(head -n 1 "$mode_file" | tr -d '[:space:]')
-    case "$mode" in quick|unhinged|deliver) ;; *) return 0 ;; esac
+    case "$mode" in quick|deliver) ;; *) return 0 ;; esac
     path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""')
     [ -n "$path" ] || return 0
     rel=$(relative_path "$path")

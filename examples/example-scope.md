@@ -1,40 +1,31 @@
 # Example Scope: Device Telemetry Ingestion
 
-This is a worked example of a well-formed SPADE Scope.
+A worked example of a SPADE Scope in the format `/spade-scope` writes.
 
 ---
 
 ## Scope: Build Databricks telemetry ingestion worker
 
-**Intent:** Build a Temporal worker that pulls device telemetry signals from
-Databricks, normalises them into the shared Argus data model, and writes to
-Elasticsearch. This gives the threat intelligence team real-time visibility
-into device behaviour patterns across the fleet.
+**Intent:** The threat intelligence team can see device behaviour across the fleet in near real time, because telemetry flows from Databricks into the shared Argus data model in Elasticsearch without anyone moving it by hand.
 
-**Acceptance Criteria:**
+### Acceptance criteria
+1. A Temporal worker runs on a configurable schedule, every 5 minutes by default, visible in the Temporal Cloud schedule list.
+2. A record that lands in the Databricks telemetry table appears in the `argus-telemetry` index within 5 minutes, checked by the integration test's end-to-end timing assertion.
+3. Indexed documents validate against the Argus data model v2 JSON schema; the integration test fails on any invalid document.
+4. Malformed records go to the `argus-telemetry-dlq` index with the rejection reason, covered by unit tests for each rejection rule.
+5. A failed worker run posts to #argus-alerts within one minute, shown by forcing a failure in staging.
 
-- [ ] Temporal worker runs on a configurable schedule (default: every 5 minutes)
-- [ ] Telemetry data appears in the Elasticsearch index within 5 minutes of
-      Databricks availability
-- [ ] Data conforms to the shared Argus data model schema (see ARCHITECTURE.md)
-- [ ] Basic data quality checks reject malformed records and log them
-- [ ] Slack alerting fires on worker failure (channel: #argus-alerts)
-- [ ] Unit tests cover normalisation logic with >80% coverage
-- [ ] Integration test validates end-to-end flow with sample data
+### Constraints
+Temporal Cloud and the existing Elasticsearch cluster only, no new infrastructure.
+Normalisation follows Argus data model v2.
+Databricks credentials come from the existing secrets manager, never from code.
+The worker deploys to the existing EKS cluster.
 
-**Constraints:**
+### Dependencies
+The Slack webhook for #argus-alerts must be provisioned by the platform team.
 
-- Must use Temporal Cloud (existing infrastructure, see ARCHITECTURE.md)
-- Must use the existing Elasticsearch cluster (no new infrastructure)
-- Normalisation must follow the Argus data model v2 schema
-- No direct Databricks credentials in code (use existing secrets management)
-- Worker must be deployable to the existing EKS cluster
+### Out of scope
+Backfilling historical telemetry, and any change to the Argus relevancy engine that reads the index.
 
-**Context:**
-
-- Upstream: Databricks telemetry tables (populated by data engineering team)
-- Downstream: Argus relevancy engine consumes normalised data from Elasticsearch
-- Related: Existing Kafka consumers follow a similar pattern (see consumer-template/)
-
-**Origin:** Q2 2026 OKR: "Argus platform is operationally valuable" /
-Milestone: "Device telemetry is flowing into the intelligence platform"
+### References
+`consumer-template/` shows the existing worker pattern; the Argus data model v2 schema lives in `schemas/argus-v2.json`.

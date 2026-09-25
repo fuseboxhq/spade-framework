@@ -13,8 +13,6 @@ Usage:
     scripts/lint/frontmatter.py <file> [--require KEY[,KEY,...]]
     scripts/lint/frontmatter.py --schema scope <file>
     scripts/lint/frontmatter.py --schema plan  <file>
-    scripts/lint/frontmatter.py --schema frontier <file>
-    scripts/lint/frontmatter.py --schema frontier-resolution <file>
 
 Exit codes (plain parse mode):
     0  frontmatter parsed successfully and all required keys present
@@ -136,34 +134,6 @@ PLAN_KNOWN_FIELDS = frozenset(
     )
 )
 
-# Frontier: every local index is a new v3.2 artefact, so all fields and
-# identifier constraints are hard requirements with no legacy mode.
-FRONTIER_REQUIRED = (
-    "schema", "id", "name", "title", "status", "revision",
-    "created", "updated", "linear_issue", "linear_url",
-)
-FRONTIER_ENUMS = {
-    "schema": ("spade-frontier/v1",),
-    "status": ("active", "blocked", "graduated"),
-}
-FRONTIER_ID_RE = re.compile(r"^fr-[a-z0-9]{6}$")
-FRONTIER_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
-
-# Frontier resolution: local decision records are immutable and use one
-# strict flat schema. Hybrid mode never creates these local files.
-FRONTIER_RESOLUTION_REQUIRED = (
-    "schema", "frontier_id", "question_id", "path", "owner",
-    "status", "attribution", "resolved_at",
-)
-FRONTIER_RESOLUTION_ENUMS = {
-    "schema": ("spade-frontier-resolution/v1",),
-    "path": ("research", "prototype", "human-decision", "prerequisite"),
-    "owner": ("ai", "human"),
-    "status": ("resolved",),
-}
-FRONTIER_QUESTION_ID_RE = re.compile(r"^[dq]-[0-9]{3}$")
-
-
 def _scope_id_is_valid(value: str) -> bool:
     """True when a Scope `id` matches either accepted shape.
 
@@ -262,80 +232,6 @@ def validate_plan(fields: Dict[str, str], rel: str) -> tuple[list[str], list[str
     return [], warns
 
 
-def validate_frontier(fields: Dict[str, str], rel: str) -> tuple[list[str], list[str]]:
-    """Validate one local `spade-frontier/v1` index frontmatter block.
-
-    Returns hard failures and warnings.
-    Frontier indexes have no grandfathered form, so unknown fields and every
-    identity, enum, or required-field defect fail closed.
-    """
-    fails: List[str] = []
-
-    for key in FRONTIER_REQUIRED:
-        if not fields.get(key):
-            fails.append(f"{rel}: missing required Frontier field: {key}")
-
-    for key, allowed in FRONTIER_ENUMS.items():
-        value = fields.get(key)
-        if value and value not in allowed:
-            fails.append(
-                f"{rel}: invalid '{key}' value {value!r}; "
-                f"expected one of: {', '.join(allowed)}"
-            )
-
-    frontier_id = fields.get("id", "")
-    if frontier_id and not FRONTIER_ID_RE.fullmatch(frontier_id):
-        fails.append(f"{rel}: invalid Frontier id: {frontier_id!r}")
-
-    name = fields.get("name", "")
-    if name and not FRONTIER_SLUG_RE.fullmatch(name):
-        fails.append(f"{rel}: invalid Frontier slug: {name!r}")
-
-    for key in fields:
-        if key not in FRONTIER_REQUIRED:
-            fails.append(f"{rel}: unrecognised Frontier field: {key}")
-
-    return fails, []
-
-
-def validate_frontier_resolution(
-    fields: Dict[str, str], rel: str
-) -> tuple[list[str], list[str]]:
-    """Validate one immutable local frontier resolution record.
-
-    Returns hard failures and warnings.
-    The record must use a stable frontier id, a decision or question id, and
-    exactly one supported resolution path and owner.
-    """
-    fails: List[str] = []
-
-    for key in FRONTIER_RESOLUTION_REQUIRED:
-        if not fields.get(key):
-            fails.append(f"{rel}: missing required Frontier resolution field: {key}")
-
-    for key, allowed in FRONTIER_RESOLUTION_ENUMS.items():
-        value = fields.get(key)
-        if value and value not in allowed:
-            fails.append(
-                f"{rel}: invalid '{key}' value {value!r}; "
-                f"expected one of: {', '.join(allowed)}"
-            )
-
-    frontier_id = fields.get("frontier_id", "")
-    if frontier_id and not FRONTIER_ID_RE.fullmatch(frontier_id):
-        fails.append(f"{rel}: invalid Frontier id: {frontier_id!r}")
-
-    question_id = fields.get("question_id", "")
-    if question_id and not FRONTIER_QUESTION_ID_RE.fullmatch(question_id):
-        fails.append(f"{rel}: invalid Frontier question id: {question_id!r}")
-
-    for key in fields:
-        if key not in FRONTIER_RESOLUTION_REQUIRED:
-            fails.append(f"{rel}: unrecognised Frontier resolution field: {key}")
-
-    return fails, []
-
-
 def run_schema(kind: str, file: Path, enforce_scope_id: bool = False) -> int:
     """Validate one file against a supported local artefact schema.
 
@@ -375,10 +271,6 @@ def run_schema(kind: str, file: Path, enforce_scope_id: bool = False) -> int:
         fails, warns = validate_scope(fields, rel, enforce_scope_id)
     elif kind == "plan":
         fails, warns = validate_plan(fields, rel)
-    elif kind == "frontier":
-        fails, warns = validate_frontier(fields, rel)
-    elif kind == "frontier-resolution":
-        fails, warns = validate_frontier_resolution(fields, rel)
     else:
         print(f"frontmatter: unknown schema kind: {kind}", file=sys.stderr)
         return 1
@@ -409,7 +301,7 @@ def main() -> int:
     )
     p.add_argument(
         "--schema",
-        choices=("scope", "plan", "frontier", "frontier-resolution"),
+        choices=("scope", "plan"),
         help="validate the file against a SPADE local-mode artefact schema",
     )
     args = p.parse_args()

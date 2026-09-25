@@ -27,7 +27,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SKILLS_DIR="$REPO_ROOT/.claude/skills"
 
 # The nine skills M-879 AC#5 names. Each must resolve a mode.
-SKILLS="spade-scope spade-plan spade-approve spade-evaluate spade-list spade-status spade-learn spade-quick spade-onboard"
+SKILLS="spade spade-scope spade-plan spade-evaluate spade-status spade-learn spade-quick spade-onboard spade-research"
 
 # Linear MCP tool tokens, as they appear bare in skill prose. Extend
 # this list when a skill starts using a new Linear MCP tool.

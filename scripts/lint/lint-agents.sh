@@ -8,7 +8,7 @@ set -euo pipefail
 # SPADE-defined persona subagent.
 #
 # Required fields:
-#   - name         — e.g. spade-review-scope-guardian
+#   - name         — e.g. spade-reviewer
 #   - description  — tells Claude Code when to spawn this subagent
 #   - model        — e.g. opus
 #   - tools        — the subagent's tool allowlist (comma-separated
