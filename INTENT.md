@@ -60,4 +60,4 @@ next Plan.
 ## Maturity
 
 In production and dogfooding itself: SPADE governs its own development through the loop it provides.
-The framework is at v6.0.0, which cut the always-loaded rules and skill procedure down to what current models need, kept the guards, merge policy, and independent review, and moved progress tracking into the Plan file.
+The framework is at v6.0.1; v6.0.0 cut the always-loaded rules and skill procedure down to what current models need, kept the guards, merge policy, and independent review, and moved progress tracking into the Plan file.
