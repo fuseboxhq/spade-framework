@@ -49,40 +49,20 @@ approach exists, flag it in the Plan and get human approval before deviating.
 
 ```text
 spade-framework/
-├── src/skills/                        # only human-editable skill source
-├── src/agents/                        # only human-editable agent source
-├── src/hosts/                         # fixed thin host adapters
+├── src/skills/, src/agents/          # the only editable skill and agent source
+├── src/hosts/                         # thin host adapters (token translation only)
 ├── src/hooks/hooks.json               # canonical Claude hook source (mechanical guards)
-├── src/CAPABILITIES.md                # inventory, host matrix, budgets, version
-├── .claude/                           # generated Claude projection (+ settings.json registering the guards here)
-├── hooks/                             # generated Claude plugin hook payload
-├── .codex/                            # generated Codex projection
-├── .claude-plugin/ / .codex-plugin/  # host plugin manifests
-├── .agents/plugins/                   # generated repo-local Codex marketplace
-├── plugins/spade-framework/           # generated installable Codex plugin payload
-├── .spade/
-│   ├── version                        # spade_version pin for this repo
-│   ├── config                         # Linear team + project binding (per repo)
-│   ├── docs/FRAMEWORK.md              # committed copy of full reference
-│   ├── examples/                      # worked example Scopes/Plans
-│   ├── plans/                         # fallback when tracker unavailable; preserves pre-v1.2 archives
-│   ├── runs/                          # local or hybrid resumable run summaries and event history
-│   ├── learnings/                     # (planned) compounding learnings store
-│   └── reviews/                       # /spade-review full-report artefacts (gitignored)
-├── fragments/
-│   ├── AGENTS-section.md              # injected into consumer AGENTS.md
-│   └── CLAUDE-section.md              # injected into consumer CLAUDE.md
-├── migrations/manifest.tsv            # explicit ordered consumer migration units
-├── render/                             # HTML template, CSS, and Pandoc safety filter
-├── docs/FRAMEWORK.md                  # canonical framework reference
-├── examples/                          # worked example Scopes/Plans
-├── bin/                               # utility scripts
-├── setup                              # POSIX installer
-├── setup.ps1                          # Windows installer
-├── ARCHITECTURE.md / PATTERNS.md / ANTI-PATTERNS.md  # this project's own architecture
-├── AGENTS.md                          # mandatory rules for AI agents
-├── CLAUDE.md                          # Claude Code surface area
-└── README.md                          # quick start + philosophy
+├── src/CAPABILITIES.md                # inventory, budgets, version authority
+├── docs/FRAMEWORK.md                  # the framework reference, copied into every projected skill
+├── fragments/                         # AGENTS.md and CLAUDE.md sections for consumer repos
+├── bin/                               # guard, lifecycle, marker, render, update-check helpers
+├── migrations/manifest.tsv            # ordered consumer migration units
+├── templates/, render/, examples/     # INTENT template, HTML renderer, worked Scope and Plan
+├── tests/                             # guard, lifecycle, install, onboarding tests and manual evals
+├── scripts/                           # projection generator and lints
+├── .claude/, .codex/, skills/, agents/, hooks/, plugins/, generated/   # generated projections
+├── .spade/                            # this repo's own config, Scopes, Plans, learnings
+└── setup, setup.ps1                   # POSIX and Windows installers
 ```
 
 ## Data Patterns
@@ -149,13 +129,9 @@ requires one, it is a major architectural shift and must be scoped explicitly.
 - **Generated paths are never edited.** CI regenerates in a temporary tree and
   fails when any Claude, Codex, plugin, install-manifest, count, or version
   projection differs from `src/` and `src/CAPABILITIES.md`.
-- **The Plan is tracker-canonical.** When a tracker is available
-  (today: Linear), the Plan lives there — as a comment on the parent
-  issue, with one sub-issue per task. `.spade/plans/` is a fallback for
-  Linear-less environments and a read-path for historical archives
-  written under v1.0–v1.1, not a default dual-write. The behaviour gate
-  is "did the tracker accept the Plan", not merely "is MCP present" —
-  see `/spade-plan` for the precise rule.
+- **The Plan lives in the repository.** `/spade-plan` writes `.spade/plans/<scope-key>.md` in every mode and, with Linear, also posts it on the Scope issue.
+  Delivery ticks its tasks and commits it on the delivery branch, so it is both the audit record and the resume point.
+  SPADE creates no per-task sub-issues.
 - **Architecture docs (this file, ARCHITECTURE.md, ANTI-PATTERNS.md) apply to
   this repo itself.** Consumer repos get their own copies via `/spade-onboard`
   and fill them in with their own content.

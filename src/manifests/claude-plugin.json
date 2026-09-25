@@ -1,7 +1,7 @@
 {
   "name": "spade",
   "version": "0.0.0",
-  "description": "SPADE Framework - 19 governed engineering skills, eight reviewer personas, one researcher, and six helpers for Claude and Codex.",
+  "description": "SPADE Framework - 13 engineering skills, one reviewer agent, one researcher, and five helpers for Claude and Codex.",
   "author": {
     "name": "Fusebox HQ"
   },

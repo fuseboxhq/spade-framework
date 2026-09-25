@@ -1,0 +1,10 @@
+mode: local
+
+autonomy:
+  default: deliver
+  size_ceiling:
+    tasks: 7
+    files: 12
+  deliver:
+    merge: human
+    max_open_prs: 3

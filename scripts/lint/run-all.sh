@@ -23,7 +23,6 @@ scripts=(
     "lint-learnings.sh"
     "lint-onboard-idempotency.sh"
     "lint-mcp-guard.sh"
-    "lint-handoff.sh"
     "lint-lifecycle.sh"
     "lint-local-frontmatter.sh"
     "lint-render-smoke.sh"

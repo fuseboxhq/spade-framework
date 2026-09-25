@@ -105,7 +105,7 @@ expect_deny "quick, write .github/workflows/ci.yml" "$(run_guard "$(pre_tool Wri
 expect_deny "quick, edit AGENTS.md" "$(run_guard "$(pre_tool Edit "{\"file_path\":\"$project/AGENTS.md\"}")")"
 expect_allow "quick, edit README.md" "$(run_guard "$(pre_tool Edit "{\"file_path\":\"$project/README.md\"}")")"
 set_mode unhinged
-expect_deny "unhinged, edit db/migrations/001.sql" "$(run_guard "$(pre_tool Edit "{\"file_path\":\"$project/db/migrations/001.sql\"}")")"
+expect_allow "retired unhinged mode is inert, edit db/migrations/001.sql" "$(run_guard "$(pre_tool Edit "{\"file_path\":\"$project/db/migrations/001.sql\"}")")"
 set_mode deliver
 expect_allow "deliver, edit src/auth/login.ts" "$(run_guard "$(pre_tool Edit "{\"file_path\":\"$project/src/auth/login.ts\"}")")"
 expect_allow "deliver, edit AGENTS.md" "$(run_guard "$(pre_tool Edit "{\"file_path\":\"$project/AGENTS.md\"}")")"
@@ -216,14 +216,6 @@ for service_layer in src/service/i18n/translationKeys.ts internal/service/routes
 done
 for service_account in gcp/service-account.json k8s/serviceaccount.yaml; do
     expect_deny "consumer deliver, $service_account" "$(classify "$project" deliver "$service_account")"
-done
-
-# Unhinged mode carries the same full surface as quick.
-for ordinary in src/pages/Dashboard.tsx src/lib/keyboard.ts src/queue/processor.ts; do
-    expect_allow "consumer unhinged, $ordinary" "$(classify "$project" unhinged "$ordinary")"
-done
-for protected in src/auth/login.ts .env.production AGENTS.md; do
-    expect_deny "consumer unhinged, $protected" "$(classify "$project" unhinged "$protected")"
 done
 
 # Every term the Scope names, each on a path where only that term can match.

@@ -37,23 +37,13 @@ node_modules/
 # persists its full report to `.spade/reviews/<slug>-<date>.md` as a
 # local audit artefact. They can carry repository and architectural
 # detail and are not committed — the inline digest is the shareable
-# view. See .claude/skills/spade-review/SKILL.md § Presenting the Report.
+# view. See docs/FRAMEWORK.md § Review.
 .spade/reviews/
-
-# Machine-local handoff config written by `/spade-onboard` — holds the
-# terminal-emulator choice for `/spade-handoff`, which is specific to the
-# developer's machine (one teammate uses iTerm2, another Terminal.app).
-# The committed `.spade/config` carries the shared handoff settings; this
-# file never is. See .claude/skills/spade-handoff/SKILL.md.
-.spade/handoff.local
-
-# Scratch dirs created in the repo root by tests/handoff-launch.sh (kept
-# inside the repo so sandboxed runs work without $HOME write access). The
-# EXIT trap removes them; this guards against an interrupted run leaving
-# one behind.
-.spade-handoff-test.*/
 
 # Session-scoped guard markers written by bin/spade-guard (SessionStart) and
 # the SPADE skills (mode, reviewed-head). Machine-local; see docs/FRAMEWORK.md
 # § Mechanical guards.
 .spade/guard/
+
+# Manual eval outputs (tests/evals/run.sh).
+tests/evals/results/

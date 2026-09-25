@@ -5,6 +5,41 @@ Versions follow [semver](https://semver.org/) at the framework level
 (consumer fragments carry their own version stamp via
 `<!-- SPADE-FRAMEWORK-START vX.Y.Z -->` markers).
 
+## [6.0.0] - 2026-09-25
+
+SPADE was written for models that needed every step spelled out.
+Current models do better with the goal, the finish line, and a clear rule for when to stop, so this release keeps the loop and cuts most of the procedure around it.
+A Deliver run used to point the agent at roughly 196 KB of skill text plus a 136 KB FRAMEWORK.md; it is now about 55 KB all told.
+
+### Changed
+
+- The consumer AGENTS.md section is about 2 KB, down from 14 KB, and states each rule once. It gains an explicit keep-going / stop-and-ask rule, and it no longer tells the agent to demand a Scope for questions, debugging, spikes, or small direct requests: those go through `/spade-quick` or need nothing. The CLAUDE.md section is two lines.
+- `docs/FRAMEWORK.md` is 26 KB, down from 136 KB, and every projected skill now ships it as `references/FRAMEWORK.md`, because consumer repositories never had a copy to read.
+- Plans are short and live at `.spade/plans/<scope-key>.md` in every mode: the approach with rejected forks, risks, and one checkbox line per task with "done when" and "verify with". Delivery ticks the tasks and commits the file, which makes it the resume point. The strict seven-field card, the delivery-approach vocabulary, the 3-7 task rule, and per-task Linear sub-issues are gone.
+- `/spade-review` defaults to one isolated reviewer that reports only merge-blocking problems (location, why, how to show it fails) plus an unconfirmed list. Lens reviewers (security, data, delivery, operability, architecture, adversarial) are added only when the change carries that risk.
+- The quick path's ten numeric criteria are replaced by judgement plus four hard lines: no new dependency, no schema or data-layer change, nothing in auth, crypto, secrets, or permissions, and no public interface break.
+- Every run ends with **Blocked on me**, **Changed**, and **Found**, replacing the Terminal TL;DR.
+- `/spade-onboard` writes gotchas-first ARCHITECTURE, PATTERNS, and ANTI-PATTERNS docs, composes INTENT.md with the human, and drafts a project verification skill when the repository has no documented way to verify a change end to end.
+- Explicit `mode: linear` with Linear unreachable now carries on with local files and says so, instead of aborting.
+- Only `/spade`, `/spade-status`, and `/spade-update` run the update check.
+
+### Removed
+
+- Skills: `/spade-approve` (folded into `/spade-plan`), `/spade-list` (folded into `/spade-status`), `/spade-intent` (folded into `/spade-onboard`), `/spade-frontier`, `/spade-unhinged`, and `/spade-handoff`. None had a recorded invocation in the maintainer's session history. Unhinged existed because the old rules demanded a Scope before any code; with that rule relaxed it has no job.
+- The eight reviewer persona agents, replaced by one `spade-reviewer` agent that takes a lens.
+- `spade-run-state/v1`, `.spade/runs/`, and the resume-validation machinery; the Plan file and git state replace them.
+- The `spade-handoff-launch` helper, the `unhinged` guard mode, hybrid mode as a distinct mode (`hybrid` still reads as `linear`), and "think hard" instructions in reviewer prompts.
+- The prose-pinning contract tests and blind corpora. `lint-skill-authoring.sh` now checks inventory, 12 KB skill and 3 KB fragment budgets, host adapters, projections, that every `FRAMEWORK.md §` reference resolves, and that no skill carries think-hard lines, pinned model names, or em dashes.
+
+### Added
+
+- `tests/evals/`: a manual behavioural eval harness that runs scenarios in a scratch repository with the Claude CLI and grades the outcome against a rubric.
+
+### Compatibility
+
+- Consumers update through the 5.1.0 to 6.0.0 `refresh_fragments` unit. Existing `.spade/runs/` files and old Plan files are left alone; a `handoff:` block in `.spade/config` is ignored.
+- Work in flight under 5.x resumes from its Plan file; a run whose Plan has no checkboxes restarts from its last approved Plan.
+
 ## [5.1.0] - 2026-09-08
 
 ### Changed

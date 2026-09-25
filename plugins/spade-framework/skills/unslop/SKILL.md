@@ -3,13 +3,6 @@ name: unslop
 description: Cut AI tells from any writing. Must always apply. Use when writing or editing any human-facing prose - docs, PR titles and bodies, commit messages, Scopes, Plans, reports, summaries - or when someone says "unslop this", "de-AI this", or "make this sound human".
 ---
 
-## Update Check
-
-Before doing anything else, run `~/.spade/bin/spade-update-check` using exec_command.
-Show the output to the user if it is non-empty.
-If the script does not exist or fails, skip silently and continue with the skill.
-
-
 # Unslop
 
 Edit text to remove AI patterns and add human voice.

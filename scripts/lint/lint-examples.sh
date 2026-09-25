@@ -10,19 +10,14 @@ set -euo pipefail
 # wrong shape.
 #
 # Checks:
-#   1. examples/example-scope.md carries **Intent:**, **Acceptance Criteria:**,
-#      **Constraints:** as Markdown bold section headers.
-#   2. examples/example-plan.md renders every task (a line beginning with
-#      "#### Task ") as one complete card: What / Done when / How / Verify /
-#      Needs+Blocks / Who.
-#   3. Every How value opens with a delivery approach from the locked
-#      vocabulary:
-#         test-first, characterization-first, refactor-first, spike, straight-through
-#   4. templates/INTENT.md and examples/example-intent.md each carry the locked
-#      INTENT.md conformance schema (SPADE v1.7, M-951): the six section
-#      headings (Problem, Users, What it does, Success, Non-goals, Maturity)
-#      and the last_reviewed frontmatter key. Changing this set requires a new
-#      Scope.
+#   1. examples/example-scope.md has **Intent:** and the Acceptance criteria,
+#      Constraints, and Out of scope headings /spade-scope writes.
+#   2. examples/example-plan.md has an approval line, Approach with rejected
+#      forks, Risks, Tasks, and Halts, and every task is a checkbox line that
+#      says "done when" and "verify with" (docs/FRAMEWORK.md § Plan).
+#   3. templates/INTENT.md and examples/example-intent.md carry the INTENT.md
+#      schema: last_reviewed plus Problem, Users, What it does, Success,
+#      Non-goals, and Maturity.
 #
 # Exit codes:
 #   0  every file conforms
@@ -53,110 +48,42 @@ require_in_scope() {
     fi
 }
 
-require_in_scope '\*\*Intent:\*\*' "Intent section"
-require_in_scope '\*\*Acceptance Criteria:\*\*' "Acceptance Criteria section"
-require_in_scope '\*\*Constraints:\*\*' "Constraints section"
-
-# --- Example plan ----------------------------------------------------------
+require_in_scope '^\*\*Intent:\*\*' "Intent"
+require_in_scope '^### Acceptance criteria' "Acceptance criteria"
+require_in_scope '^### Constraints' "Constraints"
+require_in_scope '^### Out of scope' "Out of scope"
 
 if [ ! -f "$PLAN" ]; then
     echo "lint-examples: missing $PLAN" >&2
     exit 2
 fi
 
-# Every task must be one complete card: What / Done when / How / Verify /
-# Needs+Blocks / Who, in that fixed order, with no field missing. The How
-# field must open with a delivery approach from the locked vocabulary.
-#
-# An awk pass tracks per-task state: at each "#### Task " heading (and EOF)
-# it reports any card field not seen since the previous heading, and emits
-# every How value on stderr for the vocabulary check.
-
-missing_fields=$(
-    awk '
-      function has_value(value, lower) {
-          gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-          lower = tolower(value)
-          if (value == "" || value == "...") return 0
-          if (value ~ /^<[^>]+>$/ || value ~ /^\[[^]]+\]$/) return 0
-          if (lower ~ /^(tbd|todo|placeholder|replace[ -]?me)([[:space:][:punct:]].*)?$/) return 0
-          return 1
-      }
-      function field_value(line, label) {
-          sub("^-[[:space:]]+\\*\\*" label ":\\*\\*[[:space:]]*", "", line)
-          return line
-      }
-      function check_task() {
-          if (!in_task) return
-          if (!seen_what) print "What|" current_title
-          if (!seen_done) print "Done when|" current_title
-          if (!seen_how) print "How|" current_title
-          if (!seen_verify) print "Verify|" current_title
-          if (!seen_needs) print "Needs/Blocks|" current_title
-          if (!seen_who) print "Who|" current_title
-      }
-      /^#### Task / {
-          check_task()
-          in_task = 1
-          seen_what = seen_done = seen_how = seen_verify = seen_needs = seen_who = 0
-          current_title = $0
-          next
-      }
-      /^-[[:space:]]+\*\*What:\*\*/ && in_task { seen_what = has_value(field_value($0, "What")) }
-      /^-[[:space:]]+\*\*Done when:\*\*/ && in_task { seen_done = has_value(field_value($0, "Done when")) }
-      /^-[[:space:]]+\*\*How:\*\*/ && in_task {
-          line = $0
-          sub(/^-[[:space:]]+\*\*How:\*\*[[:space:]]*/, "", line)
-          seen_how = has_value(line)
-          print "VALUE:" line > "/dev/stderr"
-      }
-      /^-[[:space:]]+\*\*Verify:\*\*/ && in_task { seen_verify = has_value(field_value($0, "Verify")) }
-      /^-[[:space:]]+\*\*Needs:\*\*/ && in_task && /\*\*Blocks:\*\*/ { seen_needs = 1 }
-      /^-[[:space:]]+\*\*Who:\*\*/ && in_task { seen_who = 1 }
-      END { check_task() }
-    ' "$PLAN" 2>/tmp/spade-lint-approaches.$$
-)
-
-if [ -n "$missing_fields" ]; then
-    while IFS='|' read -r component task; do
-        echo "  FAIL: example-plan.md task missing card field $component: $task"
+require_in_plan() {
+    local pattern="$1"
+    local label="$2"
+    if grep -qE "$pattern" "$PLAN"; then
+        echo "  ok:   example-plan.md has $label"
+    else
+        echo "  FAIL: example-plan.md missing $label (pattern: $pattern)"
         fail=$((fail + 1))
-    done <<< "$missing_fields"
-else
-    echo "  ok:   example-plan.md every task is a complete card"
-fi
-
-# Validate the delivery-approach vocabulary: the first word of every How
-# value must be one of the locked approaches (case-insensitive).
-vocab_re='^(test-first|characterization-first|refactor-first|spike|straight-through)$'
-bad_vocab=0
-while IFS= read -r line; do
-    value="${line#VALUE:}"
-    # The approach clause is everything before the first dash or parenthesis.
-    clause="${value%% -*}"
-    clause="${clause%%(*}"
-    first="$(echo "$clause" | awk '{print tolower($1)}')"
-    first="${first%%[^a-z-]*}"   # strip trailing punctuation
-    if ! echo "$first" | grep -qE "$vocab_re"; then
-        echo "  FAIL: example-plan.md How does not open with a delivery approach: '$value'"
-        bad_vocab=$((bad_vocab + 1))
-        continue
     fi
-    # In a combined approach ("characterization-first on X, test-first on Y")
-    # every approach-shaped token must be in the vocabulary.
-    for token in $(echo "$clause" | tr ' ,;' '\n\n\n' | tr '[:upper:]' '[:lower:]' | grep -E -- '-first$|-through$|^spike$' || true); do
-        if ! echo "$token" | grep -qE "$vocab_re"; then
-            echo "  FAIL: example-plan.md approach token not in vocabulary: '$token' (in value: '$value')"
-            bad_vocab=$((bad_vocab + 1))
-        fi
-    done
-done < /tmp/spade-lint-approaches.$$
-rm -f /tmp/spade-lint-approaches.$$
+}
 
-if [ "$bad_vocab" -eq 0 ]; then
-    echo "  ok:   example-plan.md every How opens with a locked delivery approach"
+require_in_plan '^Approved by ' "an approval line"
+require_in_plan '^## Approach' "Approach"
+require_in_plan 'Rejected forks' "rejected forks"
+require_in_plan '^## Risks' "Risks"
+require_in_plan '^## Tasks' "Tasks"
+require_in_plan '^## Halts' "Halts"
+
+# Every task is a checkbox line naming its finish line and its check.
+bad_tasks=$(grep -E '^- \[[ x]\] [0-9]+\.' "$PLAN" | grep -vE 'done when .*; verify with ' || true)
+task_count=$(grep -cE '^- \[[ x]\] [0-9]+\.' "$PLAN" || true)
+if [ "$task_count" -gt 0 ] && [ -z "$bad_tasks" ]; then
+    echo "  ok:   example-plan.md has $task_count tasks, each with done when and verify with"
 else
-    fail=$((fail + bad_vocab))
+    echo "  FAIL: example-plan.md tasks must be checkbox lines with 'done when ...; verify with ...'"
+    fail=$((fail + 1))
 fi
 
 # --- INTENT.md template + example ------------------------------------------

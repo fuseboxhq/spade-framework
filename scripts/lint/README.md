@@ -13,19 +13,19 @@ every PR; run them locally before pushing with:
 |---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
 | `lint-skill-frontmatter.sh`     | Every `.claude/skills/*/SKILL.md` parses and carries `name` + `description`.                                                         |
 | `lint-agents.sh`                | Every `.claude/agents/*.md` parses and carries `name`, `description`, `model`, `tools`, `persona`, `focus`. Skips cleanly if the directory is absent (pre-v1.1.0 consumers). |
-| `lint-examples.sh`              | `example-scope.md` has Intent / Acceptance Criteria / Constraints sections; `example-plan.md` renders every task as a complete card (What / Done when / How / Verify / Needs+Blocks / Who) whose How opens with the locked delivery-approach vocabulary. |
+| `lint-examples.sh`              | `example-scope.md` has Intent, Acceptance criteria, Constraints, and Out of scope; `example-plan.md` has an approval line, Approach with rejected forks, Risks, Halts, and checkbox tasks that each say "done when" and "verify with". |
 | `lint-fragments.sh`             | `fragments/*.md` carry no `SPADE-FRAMEWORK-*` markers (fragments are raw content; markers are added on insertion). `.spade/version` pins a valid `spade_version=X.Y.Z`. |
 | `lint-learnings.sh`             | `.spade/learnings/*.md` carry the required learning frontmatter (`title`, `area`, `tags`, `created`, `status`, `public_safe`); `area` and `status` are in-vocabulary; `created` is `YYYY-MM-DD`. Warns on active entries older than 180 days. |
 | `lint-onboard-idempotency.sh`   | Re-runs `tests/onboard-idempotency.sh` — 15 assertions against the Bundle A marker-replace contract.                                |
 | `lint-render-smoke.sh`          | Every fixture under `tests/fixtures/render/` renders via `spade-render` to a non-empty, standalone HTML document. Skips cleanly (exit 2) when pandoc is absent. |
 | `lint-mcp-guard.sh`             | Every skill that names a Linear MCP tool carries a `## Mode Resolution` section (M-879 AC#5 — no unguarded MCP calls). A planted-violation fixture self-tests the check on every run. |
-| `lint-handoff.sh`               | Exercises `bin/spade-handoff-launch` in `--dry-run` mode via `tests/handoff-launch.sh` — asserts injection-safety of the handoff prompt, the worktree-collision guard, and the documented failure exit codes. |
 | `lint-local-frontmatter.sh`     | `.spade/scopes/*.md` Scope frontmatter is schema-valid — hard-fails on an invalid `status`/`type`/`priority` enum value or a missing core required field; warns (never fails) on an unknown field or a missing `id` (grandfathered, v1.8). `.spade/plans/*.md` gets a light, warn-only parse check. A planted bad-enum / legacy fixture pair self-tests the check on every run. |
-| `lint-skill-authoring.sh`       | Canonical skill inventories, behavioral mutation controls, generated host tokens, size budgets, helper counts, and version claims remain aligned. |
+| `lint-skill-authoring.sh`       | Skill and agent inventory matches `src/CAPABILITIES.md`, skills and fragments fit their byte budgets, every `FRAMEWORK.md §` reference resolves, no think-hard lines or pinned model names, host adapters stay thin, projections are current, and version claims agree. It does not pin wording; behaviour is checked by `tests/evals/`. |
 | `lint-projection-drift.sh`      | Semantic drift seeds are rejected and every generated host projection remains derived from canonical source. |
 | `lint-codex-plugin.sh`          | Repo-local and installable Codex plugin manifests, marketplaces, and inventories are valid. |
 | `lint-install-projections.sh`   | Bash and PowerShell global installers consume exact SHA-256 manifests, remain idempotent, remove stale owned files, and reject unsafe destinations. |
 | `lint-lifecycle.sh`             | Capability authority, discrete migrations, immutable release-derived fixtures, resume and rollback, diagnostics, projection integrity, and unsupported states satisfy the lifecycle contract. |
+| `lint-hooks.sh`                 | Runs `tests/hooks/guards.sh` against `bin/spade-guard`: protected paths by mode, the merge policy, and the stage-all deny. |
 
 ## Dependencies
 
@@ -48,7 +48,6 @@ PyYAML — but update `ANTI-PATTERNS.md` first.
 ./scripts/lint/lint-learnings.sh
 ./scripts/lint/lint-onboard-idempotency.sh
 ./scripts/lint/lint-mcp-guard.sh
-./scripts/lint/lint-handoff.sh
 ./scripts/lint/lint-local-frontmatter.sh
 ./scripts/lint/lint-render-smoke.sh
 ./scripts/lint/lint-skill-authoring.sh
@@ -56,6 +55,7 @@ PyYAML — but update `ANTI-PATTERNS.md` first.
 ./scripts/lint/lint-codex-plugin.sh
 ./scripts/lint/lint-install-projections.sh
 ./scripts/lint/lint-lifecycle.sh
+./scripts/lint/lint-hooks.sh
 ```
 
 Each script exits 0 on success and non-zero with a clear failure line on

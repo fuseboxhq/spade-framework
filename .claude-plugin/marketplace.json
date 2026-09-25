@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "SPADE Framework marketplace - the SPADE plugin for Claude Code and Cowork.",
-    "version": "5.1.0"
+    "version": "6.0.0"
   },
   "plugins": [
     {
       "name": "spade",
       "source": ".",
-      "description": "Scope, Plan, Approve, Deliver, Evaluate - 19 skills, eight reviewer personas, one researcher, and six helpers.",
-      "version": "5.1.0",
+      "description": "Scope, Plan, Approve, Deliver, Evaluate - 13 skills, one reviewer agent, one researcher, and five helpers.",
+      "version": "6.0.0",
       "author": {
         "name": "Fusebox HQ"
       },

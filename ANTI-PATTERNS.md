@@ -52,9 +52,8 @@ it must be flagged and an alternative approach proposed.
 - **Do not approve moving release references.** Branch names, local refs,
   cached version strings, and unverified tags cannot substitute for an exact
   commit fetched from the canonical remote and approved by the human.
-- **Do not put executable commands in project configuration.** Handoff config
-  may select an allowlisted agent, but the trusted launcher owns exact binaries,
-  arguments, prompt transport, and autonomy flags.
+- **Do not put executable commands in project configuration.** `.spade/config`
+  holds data only; helpers own every binary and argument they run.
 - **Do not render untrusted Markdown as active HTML.** Raw HTML, unsafe links,
   fetchable images, template includes, and document-supplied attributes must not
   reach the local standalone document as active content.
@@ -79,13 +78,12 @@ it must be flagged and an alternative approach proposed.
 
 ## Process Anti-Patterns
 
-- **Do not write code without a Scope.** Exceptions go through `/spade-quick`,
-  which has ten explicit gate criteria (see AGENTS.md).
-- **Do not deliver without an approved Plan** on the full loop.
-  Approval is a STOP gate with one sanctioned exception: the **Deliver autonomy level** (`/spade`) records a *machine-attributed* auto-approval of the Plan and continues to an open PR, project-native checks, the two-axis Delivery Review, and an agent-recorded Evaluate verdict when every criterion is machine-verifiable.
-  Merge then follows `autonomy.deliver.merge` (see `docs/FRAMEWORK.md` § "The Deliver level" and § Ship).
-  Every other path keeps the pre-code STOP gate.
-  If in doubt, ask.
+- **Do not land work without a Scope or the quick path.** Work that will land goes through `/spade` or `/spade-quick`.
+  Questions, debugging, and throwaway spikes need neither.
+- **Do not deliver on the full loop without an approved Plan.** The Deliver
+  level's machine-recorded approval is the one sanctioned exception, and it
+  approves the Plan only; merge follows `autonomy.deliver.merge`
+  (`docs/FRAMEWORK.md` § The Deliver level).
 - **Do not move a parent Scope issue to Done without a recorded PASS behind
   it.** Done is the audit-trail closure point, so it rests on the Evaluate
   record: a PARTIAL, a FAIL, or an open evidence row leaves the issue in
@@ -93,12 +91,18 @@ it must be flagged and an alternative approach proposed.
 - **Do not disarm or route around a mechanical guard.** A guard deny is a halt
   to surface to the human. Removing a marker, editing the guard or
   `.spade/config`, or reaching the same file through a shell command defeats
-  the point. Only a human may disarm a guard, and the run trace records it.
-- **Do not bundle unrelated changes into a single PR.** One Scope → one Plan →
-  N bundles → N PRs. Each PR closes only its bundle's sub-issues.
+  the point. Only a human may disarm a guard, and the Plan's Halts section records it.
+- **Do not bundle unrelated changes into a single PR.** One Scope, one Plan,
+  and one PR per bundle.
 - **Do not let fragment versions drift.** When a fragment changes, bump the
   marker version and update `/spade-update` so consumers can pull the new
   content safely.
-- **Do not add skills casually.** Each new skill is surface area the user must
-  learn. New skills require a Scope and must explain what existing skill they
-  subsume or why they are genuinely orthogonal.
+- **Do not add skills or rules casually.** Every skill and every always-loaded
+  line costs context in every session. A new one needs a Scope that says what
+  it replaces or why nothing existing covers it, and it must fit the budgets in
+  `src/CAPABILITIES.md`.
+- **Do not pin prose in tests.** Tests that assert exact sentences make every
+  simplification fail CI. Check structure in lints and behaviour in `tests/evals/`.
+- **Do not tell the model to think harder or restate what it already knows.**
+  Set effort instead, and spend skill words on this framework's contracts and
+  the repository's gotchas.

@@ -3,7 +3,7 @@ set -euo pipefail
 
 # SPADE Framework — local-mode artefact schema lint (M-1023 AC#1 + AC#2)
 #
-# Enforces Scope and Frontier frontmatter schemas and lightly checks Plan
+# Enforces the Scope frontmatter schema and lightly checks Plan
 # frontmatter for SPADE local-mode artefacts under .spade/.
 #
 #   .spade/scopes/*.md  — HARD-fails on an invalid status/type/priority
@@ -17,15 +17,11 @@ set -euo pipefail
 #                         Historical Plan files (M-323/M-343/M-420 era)
 #                         have genuinely inconsistent frontmatter, so
 #                         this check never hard-fails them.
-#   .spade/frontiers/*/index.md - hard-fails malformed fields, unsafe
-#                         slugs, invalid identities, and invalid states.
-#   .spade/frontiers/*/decisions/*.md - hard-fails any invalid immutable
-#                         frontier resolution record.
 #
 # Learning files are NOT validated here — lint-learnings.sh already
 # covers .spade/learnings/*.md frontmatter.
 #
-# The canonical enum value sets live in docs/FRAMEWORK.md § Local Layout
+# The canonical enum value sets live in docs/FRAMEWORK.md § Local layout
 # and are mirrored in scripts/lint/frontmatter.py. Extending an enum
 # means editing that section AND the validator together — never broaden
 # the lists here to silence a real file.
@@ -44,7 +40,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VALIDATOR="$REPO_ROOT/scripts/lint/frontmatter.py"
 SCOPES_DIR="$REPO_ROOT/.spade/scopes"
 PLANS_DIR="$REPO_ROOT/.spade/plans"
-FRONTIERS_DIR="$REPO_ROOT/.spade/frontiers"
 FIXTURE_DIR="$REPO_ROOT/tests/fixtures/local-frontmatter"
 
 fail=0
@@ -91,19 +86,6 @@ else
     note "no .spade/plans/ directory; nothing to validate"
 fi
 
-# --- Frontiers: strict index and resolution validation -------------------
-if [ -d "$FRONTIERS_DIR" ]; then
-    while IFS= read -r index; do
-        validate frontier "$index" || true
-    done < <(find "$FRONTIERS_DIR" -mindepth 2 -maxdepth 2 -type f -name index.md | LC_ALL=C sort)
-
-    while IFS= read -r decision; do
-        validate frontier-resolution "$decision" || true
-    done < <(find "$FRONTIERS_DIR" -mindepth 3 -maxdepth 3 -type f -path '*/decisions/*.md' | LC_ALL=C sort)
-else
-    note "no .spade/frontiers/ directory; nothing to validate"
-fi
-
 # --- Self-test: the planted fixtures MUST still behave -------------------
 # If the bad-enum fixture stops hard-failing, or the legacy fixture stops
 # passing, the schema logic has rotted and the lint is blind — that is
@@ -111,11 +93,6 @@ fi
 echo
 BAD_ENUM="$FIXTURE_DIR/bad-enum-scope.md"
 LEGACY="$FIXTURE_DIR/legacy-scope.md"
-BAD_FRONTIER="$FIXTURE_DIR/bad-frontier.md"
-VALID_FRONTIER="$FIXTURE_DIR/valid-frontier-index.md"
-BAD_FRONTIER_RESOLUTION="$FIXTURE_DIR/bad-frontier-resolution.md"
-VALID_FRONTIER_RESOLUTION="$FIXTURE_DIR/valid-frontier-resolution.md"
-
 if [ ! -f "$BAD_ENUM" ]; then
     note "FAIL — bad-enum fixture missing: $BAD_ENUM" >&2
     fail=$((fail + 1))
@@ -164,46 +141,6 @@ for fixture in bad-id-scope bad-id-empty-scope bad-id-doubled-hyphen-scope bad-i
         note "ok   — $fixture is still rejected"
     fi
 done
-
-if [ ! -f "$BAD_FRONTIER" ]; then
-    note "FAIL - bad Frontier fixture missing: $BAD_FRONTIER" >&2
-    fail=$((fail + 1))
-elif python3 "$VALIDATOR" --schema frontier "$BAD_FRONTIER" >/dev/null 2>&1; then
-    note "FAIL - unsafe Frontier fixture no longer hard-fails" >&2
-    fail=$((fail + 1))
-else
-    note "ok   - unsafe Frontier fixture is still rejected"
-fi
-
-if [ ! -f "$VALID_FRONTIER" ]; then
-    note "FAIL - valid Frontier fixture missing: $VALID_FRONTIER" >&2
-    fail=$((fail + 1))
-elif python3 "$VALIDATOR" --schema frontier "$VALID_FRONTIER" >/dev/null 2>&1; then
-    note "ok   - valid Frontier fixture still passes"
-else
-    note "FAIL - valid Frontier fixture no longer passes" >&2
-    fail=$((fail + 1))
-fi
-
-if [ ! -f "$BAD_FRONTIER_RESOLUTION" ]; then
-    note "FAIL - bad Frontier resolution fixture missing: $BAD_FRONTIER_RESOLUTION" >&2
-    fail=$((fail + 1))
-elif python3 "$VALIDATOR" --schema frontier-resolution "$BAD_FRONTIER_RESOLUTION" >/dev/null 2>&1; then
-    note "FAIL - bad Frontier resolution fixture no longer hard-fails" >&2
-    fail=$((fail + 1))
-else
-    note "ok   - bad Frontier resolution fixture is still rejected"
-fi
-
-if [ ! -f "$VALID_FRONTIER_RESOLUTION" ]; then
-    note "FAIL - valid Frontier resolution fixture missing: $VALID_FRONTIER_RESOLUTION" >&2
-    fail=$((fail + 1))
-elif python3 "$VALIDATOR" --schema frontier-resolution "$VALID_FRONTIER_RESOLUTION" >/dev/null 2>&1; then
-    note "ok   - valid Frontier resolution fixture still passes"
-else
-    note "FAIL - valid Frontier resolution fixture no longer passes" >&2
-    fail=$((fail + 1))
-fi
 
 echo
 if [ "$fail" -eq 0 ]; then
