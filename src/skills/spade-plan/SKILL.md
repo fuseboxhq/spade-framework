@@ -46,7 +46,7 @@ When this skill runs on its own, offer `/spade-review` first and recommend it if
 
 - **Approve** (with or without notes): add `Approved by <name>, <date>.` under the Scope line, plus any notes. In `linear` mode post the Plan as a comment on the Scope issue and move it to Delivering; in `local` mode set the Scope file's `status:` to `delivering`.
 - **Revise**: take the human's feedback, rewrite the Plan, and ask again.
-- **Reject**: record the reason in the Plan's Halts section, move the `linear` issue back to Scoped, and stop.
+- **Reject**: record the reason in the Plan's Halts section, move the Scope back to Scoped (the issue in `linear` mode, `status: scoped` in a local Scope file), and stop.
 
 Do not start delivery before approval.
 
