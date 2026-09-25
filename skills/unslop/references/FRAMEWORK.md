@@ -84,7 +84,7 @@ SPADE creates no per-task sub-issues.
 
 ### Approve
 
-On the Plan level, after the review, the human is asked to approve, revise, or reject.
+At the Plan level `/spade` runs the review first, then asks the human to approve, revise, or reject; `/spade-plan` run on its own offers the review before asking.
 Approval records a line in the Plan file and, in `linear` mode, moves the issue to Delivering.
 A rejected Plan is revised against the human's feedback and shown again.
 Approval is a real check: does it fit the architecture, are there gaps, are the assumptions sound, is the breakdown sensible.

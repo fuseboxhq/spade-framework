@@ -10,19 +10,14 @@ set -euo pipefail
 # wrong shape.
 #
 # Checks:
-#   1. examples/example-scope.md carries **Intent:**, **Acceptance Criteria:**,
-#      **Constraints:** as Markdown bold section headers.
-#   2. examples/example-plan.md renders every task (a line beginning with
-#      "#### Task ") as one complete card: What / Done when / How / Verify /
-#      Needs+Blocks / Who.
-#   3. Every How value opens with a delivery approach from the locked
-#      vocabulary:
-#         test-first, characterization-first, refactor-first, spike, straight-through
-#   4. templates/INTENT.md and examples/example-intent.md each carry the locked
-#      INTENT.md conformance schema (SPADE v1.7, M-951): the six section
-#      headings (Problem, Users, What it does, Success, Non-goals, Maturity)
-#      and the last_reviewed frontmatter key. Changing this set requires a new
-#      Scope.
+#   1. examples/example-scope.md has **Intent:** and the Acceptance criteria,
+#      Constraints, and Out of scope headings /spade-scope writes.
+#   2. examples/example-plan.md has an approval line, Approach with rejected
+#      forks, Risks, Tasks, and Halts, and every task is a checkbox line that
+#      says "done when" and "verify with" (docs/FRAMEWORK.md § Plan).
+#   3. templates/INTENT.md and examples/example-intent.md carry the INTENT.md
+#      schema: last_reviewed plus Problem, Users, What it does, Success,
+#      Non-goals, and Maturity.
 #
 # Exit codes:
 #   0  every file conforms
@@ -90,6 +85,47 @@ else
     echo "  FAIL: example-plan.md tasks must be checkbox lines with 'done when ...; verify with ...'"
     fail=$((fail + 1))
 fi
+
+# --- INTENT.md template + example ------------------------------------------
+#
+# The six section headings + the last_reviewed frontmatter key are the locked
+# INTENT.md conformance schema (SPADE v1.7, M-951). Both the distributable
+# template and the worked example must carry every element. Changing this set
+# requires a new Scope.
+
+INTENT_TEMPLATE="$REPO_ROOT/templates/INTENT.md"
+INTENT_EXAMPLE="$REPO_ROOT/examples/example-intent.md"
+
+intent_require() {
+    local file="$1"
+    local label="$2"
+    local pattern="$3"
+    local desc="$4"
+    if grep -qE "$pattern" "$file"; then
+        echo "  ok:   $label has $desc"
+    else
+        echo "  FAIL: $label missing $desc (pattern: $pattern)"
+        fail=$((fail + 1))
+    fi
+}
+
+for intent_pair in "INTENT template:$INTENT_TEMPLATE" "INTENT example:$INTENT_EXAMPLE"; do
+    intent_label="${intent_pair%%:*}"
+    intent_file="${intent_pair#*:}"
+
+    if [ ! -f "$intent_file" ]; then
+        echo "lint-examples: missing $intent_file" >&2
+        exit 2
+    fi
+
+    intent_require "$intent_file" "$intent_label" '^last_reviewed:' 'last_reviewed frontmatter key'
+    intent_require "$intent_file" "$intent_label" '^## Problem[[:space:]]*$' 'Problem section'
+    intent_require "$intent_file" "$intent_label" '^## Users[[:space:]]*$' 'Users section'
+    intent_require "$intent_file" "$intent_label" '^## What it does[[:space:]]*$' 'What it does section'
+    intent_require "$intent_file" "$intent_label" '^## Success[[:space:]]*$' 'Success section'
+    intent_require "$intent_file" "$intent_label" '^## Non-goals[[:space:]]*$' 'Non-goals section'
+    intent_require "$intent_file" "$intent_label" '^## Maturity[[:space:]]*$' 'Maturity section'
+done
 
 echo
 echo "lint-examples: $fail failure(s)"

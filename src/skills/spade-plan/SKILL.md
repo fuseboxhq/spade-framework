@@ -33,7 +33,7 @@ Use the format in `references/FRAMEWORK.md` § Plan.
 
 If the Plan exceeds `autonomy.size_ceiling` in `.spade/config` (default 7 tasks or 12 changed files), say so; under `/spade` that is a tripwire.
 
-Apply `/unslop` to the prose, then write the file to `.spade/plans/<scope-key>.md`, where `<scope-key>` is the tracker id or the local Scope slug.
+Apply `/unslop` to the prose, then write the file to `.spade/plans/<scope-key>.md`, where `<scope-key>` is the tracker id or the local Scope slug, and move the Scope to Approval (issue status, or `status: approval` in a local Scope file).
 When pandoc is installed, render it with `spade-render <file>` and give the `file://` link.
 
 ## Approval
@@ -42,9 +42,9 @@ When `/spade` invokes this skill, stop after writing the Plan: `/spade` runs the
 
 Otherwise, show the Plan and ask through `{{SPADE_ASK_USER}}`: *Approve*, *Approve with notes*, *Revise*, or *Reject*.
 Before asking, give your own one-line read on each of: architecture fit, gaps, assumptions, task breakdown.
-If the change touches architecture, security, or cross-system boundaries, say that it deserves a careful look; offer `/spade-review` if the human wants a second opinion.
+When this skill runs on its own, offer `/spade-review` first and recommend it if the change touches architecture, security, or cross-system boundaries; under `/spade` the review has already run.
 
-- **Approve** (with or without notes): add `Approved by <name>, <date>.` under the Scope line, plus any notes. In `linear` mode post the Plan as a comment on the Scope issue and move it to Delivering.
+- **Approve** (with or without notes): add `Approved by <name>, <date>.` under the Scope line, plus any notes. In `linear` mode post the Plan as a comment on the Scope issue and move it to Delivering; in `local` mode set the Scope file's `status:` to `delivering`.
 - **Revise**: take the human's feedback, rewrite the Plan, and ask again.
 - **Reject**: record the reason in the Plan's Halts section, move the `linear` issue back to Scoped, and stop.
 
