@@ -1,8 +1,8 @@
 # SPADE per-repo configuration.
 # Read by SPADE skills to avoid prompting for team/project on every invocation.
 
-# Operating mode: linear | local | hybrid. An explicit value always wins
-# over auto-detect. See docs/FRAMEWORK.md § Operating Modes.
+# Operating mode: linear | local (hybrid is read as linear). An explicit
+# value always wins over auto-detect. See docs/FRAMEWORK.md § Operating modes.
 mode: linear
 
 linear:
@@ -33,13 +33,10 @@ guards:
 # - This repo is the SPADE framework itself. The loop governs its own work.
 # - Parent Linear issues are Scopes; Plans live in .spade/plans/ and are posted on the Scope issue.
 
-# Horizon roadmap binding (opt-in) — uncomment in a repo whose Linear project
-# is fronted by a Horizon roadmap board. When present, SPADE treats every
-# Scope as belonging to a Linear Milestone (a Horizon board Item, 1:1) and
-# leaves Plan task sub-issues unmilestoned, so the milestone rollup counts
-# roadmap Scopes, not implementation tasks. See docs/FRAMEWORK.md § Horizon
-# Roadmap Binding. This repo (the framework itself) is not Horizon-bound, so
-# the block stays commented out here.
+# Horizon roadmap binding (opt-in). Uncomment in a repo whose Linear project
+# feeds a Horizon roadmap board; every Scope then belongs to one Linear
+# Milestone. See docs/FRAMEWORK.md § Horizon roadmap binding. This repo is not
+# Horizon-bound.
 # horizon:
 #   board_url: https://horizon.example.com/t/<team>/p/<project>  # optional, for deep links
 #   enforce_scope_milestone: warn   # warn (default) | off — omit to mean warn
