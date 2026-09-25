@@ -32,3 +32,23 @@ Rejected forks:
 ## Halts
 
 None. The guard edits (bin/spade-guard, .spade/config) only narrow protection and were made under Kevin's direct instruction; the merge is left to him.
+
+## Evaluation
+
+Reviewed head: dc65a74 (Delivery Review by an independent Codex Sol reviewer in two passes: 8 blocking findings on the first pass, 3 on the second, all fixed; none open).
+
+| # | Criterion | Evidence | Status |
+|---|---|---|---|
+| 1 | Fragments at most 3 KiB and 1 KiB, rules once, stop rule, no Scope demand for small work | `wc -c fragments/*.md`: 1,851 and 174 bytes; `lint-skill-authoring.sh` budget check; evals `quick-direct-request` and `question-needs-nothing` PASS | met |
+| 2 | Six skills removed, duties folded, one reviewer agent, inventory agrees | `ls src/skills` lists 13; `ls src/agents` lists spade-reviewer and spade-researcher; `project-hosts.sh --check`, `lint-codex-plugin.sh`, and `lint-install-projections.sh` pass | met |
+| 3 | Every SKILL.md at most 12 KiB; Deliver procedure at most 60 KiB | largest SKILL.md is leads at 7,917 bytes; spade, scope, plan, review, evaluate, unslop, reviewer, FRAMEWORK.md, and fragments total 57,117 bytes | met |
+| 4 | Short Plan format at `.spade/plans/<scope-key>.md` as the resume point; run-state, sub-issues, cards, and approach vocabulary gone | `docs/FRAMEWORK.md` § Plan; `lint-examples.sh` passes on the new format; grep for `spade-run-state`, `Needs:`, `characterization-first` in src, fragments, and FRAMEWORK.md finds nothing; eval `plan-level` PASS | met |
+| 5 | One reviewer by default, blocking-only contract, lenses on risk, no think-hard or model pins | `src/skills/spade-review/SKILL.md`, `src/agents/spade-reviewer.md`; lint check for think-hard and model names passes; eval `review-blocking-only` PASS | met |
+| 6 | Prose-pinning tests replaced by structural lint and a manual eval harness; guard, lifecycle, install, onboarding tests pass | `tests/hooks/guards.sh` 0 failures; `tests/lifecycle.sh` 99 passed; `lint-install-projections.sh` passes (PowerShell fixture skipped, no pwsh here); `lint-onboard-idempotency.sh` 15 passed; `tests/evals/run.sh` 5 of 5 PASS | met |
+| 7 | Guard and FRAMEWORK consistent, unhinged and handoff removed | `bin/spade-guard` accepts only quick and deliver modes and no longer names `.spade/handoff.local`; `tests/hooks/guards.sh` passes | met |
+| 8 | v6.0.0 release plumbing and docs | `src/CAPABILITIES.md` version 6.0.0; `migrations/manifest.tsv` row 5.1.0 to 6.0.0; 6.0.0 lifecycle fixture; CHANGELOG, README, ARCHITECTURE, PATTERNS, ANTI-PATTERNS, INTENT updated; version-claim lint passes | met |
+
+Known and pre-existing: `lint-lifecycle.sh` fails its release-history check in this snapshot repository (Lead #2), and GitHub Actions is disabled (Lead #3), so the lints were run locally.
+
+**Verdict:** PASS recommended - every criterion is met with evidence on dc65a74.
+**Recorded by:** pending Kevin. The change edits the guard and `.spade/config`, so the verdict and the merge stay with a human.
