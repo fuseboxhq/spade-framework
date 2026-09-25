@@ -35,7 +35,7 @@ None. The guard edits (bin/spade-guard, .spade/config) only narrow protection an
 
 ## Evaluation
 
-Reviewed head: dc65a74 (Delivery Review by an independent Codex Sol reviewer in two passes: 8 blocking findings on the first pass, 3 on the second, all fixed; none open).
+Reviewed head: e29c161 (Delivery Review by an independent Codex Sol reviewer in three passes: 8, then 3, then 1 blocking findings, all fixed; none open).
 
 | # | Criterion | Evidence | Status |
 |---|---|---|---|
@@ -50,5 +50,5 @@ Reviewed head: dc65a74 (Delivery Review by an independent Codex Sol reviewer in 
 
 Known and pre-existing: `lint-lifecycle.sh` fails its release-history check in this snapshot repository (Lead #2), and GitHub Actions is disabled (Lead #3), so the lints were run locally.
 
-**Verdict:** PASS recommended - every criterion is met with evidence on dc65a74.
-**Recorded by:** pending Kevin. The change edits the guard and `.spade/config`, so the verdict and the merge stay with a human.
+**Verdict:** PASS - every criterion is met with evidence.
+**Recorded by:** Kevin Robertson, 2026-09-25, by instructing the merge. The change edits the guard and `.spade/config`, so the verdict stayed with a human.

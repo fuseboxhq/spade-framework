@@ -1,9 +1,9 @@
 ---
 name: spade-v6-trim
 title: SPADE v6 - cut the framework down to what current models need
-status: evaluating
+status: done
 type: refactor
-phase: evaluation
+phase: done
 created: 2026-09-25
 updated: 2026-09-25
 origin: ad-hoc
