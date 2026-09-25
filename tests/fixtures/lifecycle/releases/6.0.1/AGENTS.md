@@ -1,3 +1,6 @@
+consumer-owned prefix
+
+<!-- SPADE-FRAMEWORK-START v6.0.1 -->
 # SPADE
 
 This repository uses SPADE.
@@ -28,3 +31,6 @@ Write every halt where the work is tracked as well as in the session.
 
 Apply `/unslop` to human-facing prose: Scopes, Plans, PR titles and bodies, and reports.
 End every run with **Blocked on me**, **Changed**, and **Found**.
+<!-- SPADE-FRAMEWORK-END -->
+
+consumer-owned suffix

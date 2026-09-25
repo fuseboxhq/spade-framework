@@ -13,7 +13,7 @@ The skills carry the procedure and `docs/FRAMEWORK.md` is the reference, so this
 ## Keep going or stop
 
 When a step does not need the human, keep going and put status notes in the same message as your next action.
-Stop and ask only when you cannot continue without the human, when a SPADE tripwire fires (`docs/FRAMEWORK.md` § Tripwires), or before anything destructive or outside this repository: deleting data, force-pushing, rewriting history, or changing shared systems.
+Stop and ask only when you cannot continue without the human, when a SPADE tripwire fires (`docs/FRAMEWORK.md` § Tripwires), or before anything destructive or that changes state outside this repository: deleting data, force-pushing, rewriting history, or changing shared systems. Read-only checks outside the repository (identity, permissions, status) do not need a stop.
 Write every halt where the work is tracked as well as in the session.
 
 ## Hard lines

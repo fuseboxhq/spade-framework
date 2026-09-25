@@ -1,6 +1,6 @@
 {
   "name": "spade",
-  "version": "6.0.0",
+  "version": "6.0.1",
   "description": "SPADE Framework - 13 engineering skills, one reviewer agent, one researcher, and five helpers for Claude and Codex.",
   "author": {
     "name": "Fusebox HQ"

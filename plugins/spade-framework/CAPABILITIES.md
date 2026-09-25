@@ -1,9 +1,9 @@
 ---
-version: 6.0.0
+version: 6.0.1
 canonical_remote: https://github.com/fuseboxhq/spade-framework.git
 release_ref_policy: commit
 minimum_supported_version: 1.0.0
-published_versions: 1.0.0,1.1.0,1.1.1,1.2.0,1.3.0,1.6.0,1.6.1,1.7.0,1.8.0,1.9.0,1.10.0,1.11.0,1.12.0,1.13.0,1.14.0,1.14.1,2.0.0,2.0.1,2.1.0,3.0.0,3.1.0,3.2.0,3.2.1,3.3.0,3.4.0,3.5.0,3.6.0,3.7.0,4.0.0,5.0.0,5.0.1,5.1.0,6.0.0
+published_versions: 1.0.0,1.1.0,1.1.1,1.2.0,1.3.0,1.6.0,1.6.1,1.7.0,1.8.0,1.9.0,1.10.0,1.11.0,1.12.0,1.13.0,1.14.0,1.14.1,2.0.0,2.0.1,2.1.0,3.0.0,3.1.0,3.2.0,3.2.1,3.3.0,3.4.0,3.5.0,3.6.0,3.7.0,4.0.0,5.0.0,5.0.1,5.1.0,6.0.0,6.0.1
 skills: leads,spade,spade-evaluate,spade-learn,spade-onboard,spade-plan,spade-quick,spade-research,spade-review,spade-scope,spade-status,spade-update,unslop
 review_personas: spade-reviewer
 researcher: spade-researcher

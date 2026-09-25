@@ -167,7 +167,7 @@ When unsure whether something is a tripwire, halt: a false halt costs one messag
 
 When a step does not need the human, keep going, and put status notes in the same message as the next action.
 Do not stop to summarise, offer to continue, or list options that do not block the work.
-Stop and ask only for a tripwire, when you cannot continue without the human, or before anything destructive or outside the repository: deleting data, force-pushing, rewriting history, or changing shared systems.
+Stop and ask only for a tripwire, when you cannot continue without the human, or before anything destructive or that changes state outside the repository: deleting data, force-pushing, rewriting history, or changing shared systems. Read-only checks outside the repository (identity, permissions, status) do not need a stop.
 
 ### Run summary
 
@@ -422,4 +422,4 @@ Host-managed plugins update only through their host manager.
 
 ---
 
-*The SPADE Framework v6.0.0, September 2026, Fusebox HQ*
+*The SPADE Framework v6.0.1, September 2026, Fusebox HQ*

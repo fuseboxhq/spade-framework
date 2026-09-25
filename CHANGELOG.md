@@ -5,6 +5,16 @@ Versions follow [semver](https://semver.org/) at the framework level
 (consumer fragments carry their own version stamp via
 `<!-- SPADE-FRAMEWORK-START vX.Y.Z -->` markers).
 
+## [6.0.1] - 2026-09-25
+
+### Fixed
+
+- The stop rule said to stop "before anything destructive or outside this repository", which read as stopping even for read-only checks such as confirming a cloud identity or permissions. It now says to stop before anything destructive or that changes state outside the repository, and that read-only checks outside it need no stop. The wording is fixed in the consumer AGENTS.md section, this repository's AGENTS.md, and `docs/FRAMEWORK.md` § Keep going or stop.
+
+### Compatibility
+
+- Consumers update through the 6.0.0 to 6.0.1 `refresh_fragments` unit.
+
 ## [6.0.0] - 2026-09-25
 
 SPADE was written for models that needed every step spelled out.

@@ -3,7 +3,7 @@
 **A human-AI operating model for engineering teams.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-6.0.0-green.svg)](setup)
+[![Version](https://img.shields.io/badge/version-6.0.1-green.svg)](setup)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-compatible-blueviolet.svg)](https://claude.ai/code)
 
 ```
