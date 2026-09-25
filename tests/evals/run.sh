@@ -35,7 +35,7 @@ setup_script() {
 
 build_repo() {
     # Arguments: destination. Creates the fixture repository with SPADE fragments.
-    local repo="$1" version
+    local repo="$1" version name
     version=$(awk '/^version:/ {print $2; exit}' "$REPO_ROOT/src/CAPABILITIES.md")
     cp -R "$EVALS/fixture" "$repo"
     printf 'spade_version=%s\n' "$version" > "$repo/.spade/version"
