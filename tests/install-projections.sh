@@ -67,7 +67,8 @@ rm "$home/.codex"
 HOME="$home" "$REPO_ROOT/setup" --host codex >/dev/null
 assert_manifest codex
 
-if command -v pwsh >/dev/null 2>&1; then
+# A version-manager shim can exist without a usable PowerShell, so probe it.
+if command -v pwsh >/dev/null 2>&1 && pwsh -NoProfile -Command "exit 0" >/dev/null 2>&1; then
     pshome="$tmp/powershell-home"
     mkdir -p "$pshome"
     HOME="$pshome" pwsh -NoProfile -File "$REPO_ROOT/setup.ps1" -HostTarget all >/dev/null
