@@ -155,7 +155,7 @@ Before authoring a Scope, `/spade` checks the fast-track gate (§ Fast-track) an
 Between a locked Scope and the level's halt point, `/spade` keeps going without asking unless a tripwire fires:
 
 1. **Strategic fork.** Two viable options differ materially (cost, reversibility, architecture, user-visible behaviour) and the Scope does not choose between them. A choice with an obvious default is not a fork: pick it and note why.
-2. **Blocking review finding.** A reviewer reports a problem it would block the merge for and the fix changes the approach.
+2. **Blocking review finding.** A reviewer reports a problem it would block the merge for and the fix changes the approach, or a blocking finding is still open after the third Delivery Review round.
 3. **Architecture conflict.** The Scope or Plan conflicts with ARCHITECTURE.md, ANTI-PATTERNS.md, or a stated constraint.
 4. **Unverifiable criterion.** An acceptance criterion cannot be checked by a command or named evidence.
 5. **Size ceiling.** The Plan exceeds `autonomy.size_ceiling` (default 7 tasks or 12 changed files).
@@ -239,11 +239,16 @@ When ANTI-PATTERNS.md has many rules, split them across reviewers so each rule g
 
 The coordinator checks each finding's evidence before accepting it, drops duplicates, and presents what survives.
 Findings are advice; tripwire 2 decides whether a finding halts an unattended run.
+Every accepted blocking finding still ends with one disposition: fixed (with the commit), contested (citing evidence the reviewer could read), escalated to the human, or pre-existing (in code the diff did not change, confirmed against base and raised as a Lead).
+Severity changes only through a contest with evidence.
+A reviewer that fails twice is reported as `not run`, which never counts as a clean review.
+An escalated finding, an evidence-free contest, or a `not run` lens blocks an agent-recorded PASS.
 
 **Delivery Review** reviews a fixed commit range, base..head, against two questions: does the diff meet every acceptance criterion, and does it meet the repository's own standards (ARCHITECTURE.md, PATTERNS.md, ANTI-PATTERNS.md, existing conventions, checks).
 Record the base and head SHAs with the report.
 A later commit makes the review stale.
 An uncommitted working tree gets a provisional review that cannot support PASS.
+Delivery Review runs at most three rounds per PR: rounds after the first cover the new commits plus open findings, settled findings are passed in and not reopened, and the round that supports PASS covers the full base..head on the final head.
 
 Reports are saved under `.spade/reviews/` (gitignored).
 

@@ -16,6 +16,8 @@ Stay within that lens.
 For a Scope or Plan, find only problems that should block approval or delivery.
 For a Delivery Review, answer the two questions supplied in the prompt against the exact base and head SHAs.
 Inspect the cited files and diff rather than relying on the prompt's claims.
+A blocking problem in code the base..head diff did not change goes under `Pre-existing`, not under blocking problems: the change did not cause it.
+Findings the prompt lists as settled stay settled; raise one again only when the new commits change the code it cites.
 Read the repository's `ARCHITECTURE.md`, `PATTERNS.md`, and `ANTI-PATTERNS.md` when they bear on the review.
 
 Report only blocking problems.
@@ -31,6 +33,11 @@ Use this shape:
   Why: <why this blocks approval or merge>
   How to show it fails: <command, test, trace, or concrete counterexample>
 
+## Pre-existing
+
+- Location: `<file:line>`
+  Why: <the problem, in code this diff did not change>
+
 ## Unconfirmed
 
 - Concern: <suspected blocking problem that you could not prove>
@@ -38,4 +45,4 @@ Use this shape:
 ```
 
 If there are no blocking problems, write `No blocking problems.` under `## Blocking problems`.
-If nothing remains unconfirmed, write `None.` under `## Unconfirmed`.
+If nothing remains unconfirmed or pre-existing, write `None.` under that heading.
