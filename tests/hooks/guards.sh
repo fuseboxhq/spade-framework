@@ -347,6 +347,9 @@ expect_deny "floor, owner-listed path" "$(merge_files 1 '[{"filename":"billing/c
 expect_allow "floor, path outside the owner list" "$(merge_files 1 '[{"filename":"src/charge.ts","patch":"+x"}]')"
 write_config on-green false
 expect_deny "on-green, a second merge chained after a checked one" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123; gh pr merge 42 --admin"}')")"
+expect_deny "on-green, --repo elsewhere" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --repo other/repo --squash --match-head-commit abc123"}')")"
+expect_deny "on-green, GH_REPO prefix" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"GH_REPO=other/repo gh pr merge 41 --squash --match-head-commit abc123"}')")"
+expect_deny "on-green, PR URL" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge https://github.com/other/repo/pull/41 --squash --match-head-commit abc123"}')")"
 expect_deny "on-green, --admin" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --admin --match-head-commit abc123"}')")"
 expect_deny "on-green, pin repeated with another head" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123 --match-head-commit def456"}')")"
 expect_deny "on-green, glab merge unsupported" "$(run_guard "$(pre_tool Bash '{"command":"glab mr merge 7"}')")"

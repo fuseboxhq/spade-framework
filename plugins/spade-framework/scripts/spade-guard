@@ -568,6 +568,10 @@ guard_merge() {
         }
     ')
     pins=$(printf '%s' "$merge" | awk -F'\t' '{ n = 0; for (k = 4; k <= NF; k++) if ($k == "--match-head-commit" || $k ~ /^--match-head-commit=/) n++; print n }')
+    # Every check below reads the project's own repository, so a merge aimed
+    # anywhere else would be checked against the wrong PR.
+    elsewhere=$(printf '%s' "$segments" | awk -F'\t' '{ for (k = 1; k <= NF; k++) if ($k == "-R" || $k == "--repo" || $k ~ /^(-R|--repo=)./ || $k ~ /^GH_REPO=/ || $k ~ /\/pull\//) { print "yes"; exit } }')
+    [ "$elsewhere" != yes ] || deny "SPADE guard: on-green merges only the project's own PR by number; drop -R, --repo, GH_REPO, or a PR URL."
     admin=$(printf '%s' "$merge" | awk -F'\t' '{ for (k = 4; k <= NF; k++) if ($k == "--admin") { print "yes"; exit } }')
     [ "$admin" != yes ] || deny "SPADE guard: --admin bypasses branch protection, so it never merges under on-green."
     [ "$pins" = 1 ] || deny "SPADE guard: pin the merge exactly once with --match-head-commit; a repeated pin is ambiguous."
