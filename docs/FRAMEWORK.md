@@ -132,6 +132,7 @@ The human owns Ship and sets the merge policy in `.spade/config`:
   Without guards live, the human may still ask the agent to merge once checks are green.
 - `autonomy.deliver.merge: on-green`: the agent may merge a PR whose recorded verdict is PASS on the current head, whose checks are green, with the merge pinned to that head (`gh pr merge <pr> --match-head-commit <sha>`).
   The guard enforces every condition.
+  A few changes still need a human merge under `on-green`: any changed path (old or new name) in secrets and credentials, production data, permission widening, or CI; a migration whose added lines drop, rename, truncate, delete, remove, or alter; and any path matching `guards.human_merge_paths` (comma-separated globs in `.spade/config`). Other security categories, such as auth or crypto code, merge on green once review and Evaluate pass.
 
 A merge authorisation covers the merge only; deploys need their own.
 
@@ -290,7 +291,7 @@ It never weighs a trade-off or reads the conversation.
 | Guard | Fires on | Denies when |
 |---|---|---|
 | Protected path | `Edit`, `Write`, `MultiEdit`, `NotebookEdit` | `.spade/guard/<session_id>/mode` exists. In `quick` mode any path matching the fourteen categories denies. In `deliver` mode only secrets and credentials, production data, and permission widening deny; permission widening covers `.spade/config`, `.claude/settings*.json`, `hooks/hooks.json`, `bin/spade-guard`, and any path whose purpose grants or widens a permission. |
-| Merge policy | `Bash` running `gh pr merge`, `glab mr merge`, or a `gh api` merge | `autonomy.deliver.merge` is `human` or absent. Under `on-green`, denies unless the PR is not a draft, is mergeable, has at least one check and every check is SUCCESS or SKIPPED, `.spade/guard/reviewed-head-<pr>` reads `<head sha> PASS` for the current head, and the command pins that head with `--match-head-commit` and a literal SHA. `glab` is not verified and denies under `on-green`. |
+| Merge policy | `Bash` running `gh pr merge`, `glab mr merge`, or a `gh api` merge | `autonomy.deliver.merge` is `human` or absent. Under `on-green`, denies unless the PR is not a draft, is mergeable, has at least one check and every check is SUCCESS or SKIPPED, `.spade/guard/reviewed-head-<pr>` reads `<head sha> PASS` for the current head, and the command pins that head with `--match-head-commit` and a literal SHA, and the merge floor (§ Ship and merge policy) passes over every changed file listed by `gh api .../pulls/<n>/files`, with the listed count equal to `changedFiles`. `glab` is not verified and denies under `on-green`. |
 | Stage all | `Bash` running `git add -A`, `--all`, or `.` | `guards.deny_stage_all: true`. Off by default. |
 
 **Markers.** `SessionStart` writes `.spade/guard/<session_id>/live`; `SessionEnd` removes the session directory.
