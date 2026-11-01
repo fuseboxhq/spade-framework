@@ -210,8 +210,8 @@ register_hooks() {
     # Registers the SPADE guard hooks in ~/.claude/settings.json for a clone
     # install. The entries come from src/hooks/hooks.json with each command
     # pointed at the installed guard, because ${CLAUDE_PLUGIN_ROOT} is only set
-    # for plugin hooks. Existing spade-guard entries are replaced and everything
-    # else is kept, so rerunning is safe. Invalid settings are left untouched.
+    # for plugin hooks. Existing spade-guard commands are replaced and every
+    # other command, even one sharing a hook group, is kept, so rerunning is safe. Invalid settings are left untouched.
     local guard="$HOME/.spade/bin/spade-guard"
     local settings="$HOME/.claude/settings.json"
     local current merged ours
@@ -228,7 +228,8 @@ register_hooks() {
         .hooks = (.hooks // {})
         | reduce ($ours | to_entries[]) as $e (.;
             .hooks[$e.key] = ([(.hooks[$e.key] // [])[]
-                | select([.hooks[]?.command // "" | test("spade-guard")] | any | not)] + $e.value))')
+                | .hooks = [(.hooks // [])[] | select((.command // "") | test("spade-guard") | not)]
+                | select(.hooks | length > 0)] + $e.value))')
     mkdir -p "$HOME/.claude"
     [ ! -f "$settings" ] || cp "$settings" "$settings.spade-backup"
     printf '%s\n' "$merged" > "$settings.tmp.$$"

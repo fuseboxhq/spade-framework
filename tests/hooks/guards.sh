@@ -329,6 +329,9 @@ expect_deny "floor, production data" "$(merge_files 1 '[{"filename":"scripts/pro
 expect_allow "floor, auth code merges on-green" "$(merge_files 1 '[{"filename":"src/auth/login.ts","patch":"+x"}]')"
 expect_allow "floor, additive SQL migration" "$(merge_files 1 '[{"filename":"db/migrations/002_add_email.sql","patch":"+ALTER TABLE users ADD COLUMN email text;"}]')"
 expect_deny "floor, SQL migration dropping a table" "$(merge_files 1 '[{"filename":"db/migrations/003.sql","patch":"+DROP TABLE users;"}]')"
+expect_deny "floor, MySQL MODIFY COLUMN" "$(merge_files 1 '[{"filename":"db/migrations/006.sql","patch":"+ALTER TABLE users MODIFY COLUMN age smallint;"}]')"
+expect_deny "floor, Alembic alter_column" "$(merge_files 1 '[{"filename":"alembic/versions/1a2b_x.py","patch":"+    op.alter_column(\"users\", \"email\", type_=sa.String(10))"}]')"
+expect_deny "floor, Postgres ALTER without COLUMN" "$(merge_files 1 '[{"filename":"db/migrations/007.sql","patch":"+ALTER TABLE users ALTER email TYPE varchar(10);"}]')"
 expect_deny "floor, Rails remove_column" "$(merge_files 1 '[{"filename":"db/migrate/20261101_x.rb","patch":"+    remove_column :users, :email"}]')"
 expect_deny "floor, Alembic drop_table" "$(merge_files 1 '[{"filename":"alembic/versions/1a2b_x.py","patch":"+    op.drop_table(\"users\")"}]')"
 expect_deny "floor, Django AlterField" "$(merge_files 1 '[{"filename":"app/migrations/0004_x.py","patch":"+        migrations.AlterField(model_name=\"u\")"}]')"
@@ -344,6 +347,8 @@ expect_deny "floor, owner-listed path" "$(merge_files 1 '[{"filename":"billing/c
 expect_allow "floor, path outside the owner list" "$(merge_files 1 '[{"filename":"src/charge.ts","patch":"+x"}]')"
 write_config on-green false
 expect_deny "on-green, a second merge chained after a checked one" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123; gh pr merge 42 --admin"}')")"
+expect_deny "on-green, --admin" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --admin --match-head-commit abc123"}')")"
+expect_deny "on-green, pin repeated with another head" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123 --match-head-commit def456"}')")"
 expect_deny "on-green, glab merge unsupported" "$(run_guard "$(pre_tool Bash '{"command":"glab mr merge 7"}')")"
 
 # Missing jq denies loudly.

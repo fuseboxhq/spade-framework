@@ -490,9 +490,10 @@ is_migration() {
 destructive_patch() {
     # Reads a unified diff on stdin. Succeeds when an added line drops, renames,
     # truncates, deletes, removes, or alters, in SQL or the usual ORM verbs
-    # (remove_column, RemoveField, change_column, AlterField). A substring match
+    # (remove_column, RemoveField, change_column, AlterField, Alembic alter_column,
+    # MySQL MODIFY or CHANGE, Postgres ALTER ... TYPE on the ALTER TABLE line). A substring match
     # over-matches on purpose: a false hit only costs a human merge.
-    grep '^+' | grep -v '^+++' | grep -Eiq 'drop|rename|truncate|delete|remove|alter[[:space:]]+column|change_column|alterfield'
+    grep '^+' | grep -v '^+++' | grep -Eiq 'drop|rename|truncate|delete|remove|(alter|modify)[[:space:]]+column|alter_column|alter[[:space:]]+table.*[[:space:]](alter|change|modify)[[:space:]]|change_column|alterfield'
 }
 
 guard_merge_floor() {
@@ -566,6 +567,10 @@ guard_merge() {
             }
         }
     ')
+    pins=$(printf '%s' "$merge" | awk -F'\t' '{ n = 0; for (k = 4; k <= NF; k++) if ($k == "--match-head-commit" || $k ~ /^--match-head-commit=/) n++; print n }')
+    admin=$(printf '%s' "$merge" | awk -F'\t' '{ for (k = 4; k <= NF; k++) if ($k == "--admin") { print "yes"; exit } }')
+    [ "$admin" != yes ] || deny "SPADE guard: --admin bypasses branch protection, so it never merges under on-green."
+    [ "$pins" = 1 ] || deny "SPADE guard: pin the merge exactly once with --match-head-commit; a repeated pin is ambiguous."
     [ "$pinned" = ok ] \
         || deny "SPADE guard: pin the merge to the reviewed head with a literal SHA the guard can read: gh pr merge $number --match-head-commit $head_sha ..."
     guard_merge_floor "$number" "$(printf '%s' "$view" | jq -r '.changedFiles // empty')"

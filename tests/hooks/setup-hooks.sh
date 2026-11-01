@@ -19,7 +19,7 @@ check() {
 }
 
 cat > "$home/.claude/settings.json" <<'JSON'
-{"theme": "dark", "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "other-hook"}]}]}}
+{"theme": "dark", "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "other-hook"}]}, {"matcher": "Bash", "hooks": [{"type": "command", "command": "/old/spade-guard"}, {"type": "command", "command": "shared-group-hook"}]}]}}
 JSON
 
 echo "setup --hooks"
@@ -29,6 +29,7 @@ settings="$home/.claude/settings.json"
 
 check "other settings kept" jq -e '.theme == "dark"' "$settings"
 check "other hook kept" jq -e '[.hooks.PreToolUse[].hooks[].command] | index("other-hook") != null' "$settings"
+check "a command sharing a group with an old guard entry is kept" jq -e '[.hooks.PreToolUse[].hooks[].command] | index("shared-group-hook") != null' "$settings"
 for event in SessionStart SessionEnd PreToolUse; do
     check "$event has exactly one guard entry after a rerun" \
         jq -e --arg e "$event" '[.hooks[$e][] | select(any(.hooks[]; .command | test("spade-guard")))] | length == 1' "$settings"

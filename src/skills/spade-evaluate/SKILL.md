@@ -58,7 +58,7 @@ Then:
 
 - When the work has a PR, add the evaluation, verdict, and finding dispositions to the PR body with `gh pr edit <pr> --body-file <file>`; this does not move the head, and the squash merge carries the body into git history.
 - Post the evaluation on the Scope issue (`linear`). In `local` mode the PR body is the record; with no PR, append it to the Plan file and set the Scope's `status:`; with a PR, do both in a follow-up commit after the merge, never on the reviewed branch.
-- PASS moves the Scope to Done.
+- PASS moves the Scope to Done (in `local` mode with a PR, through that follow-up commit after the merge).
 - PARTIAL or FAIL leaves it in Evaluating: small defects go back to delivery, a wrong approach goes back to `/spade-plan`.
 - A commit after evaluation makes the verdict stale.
 

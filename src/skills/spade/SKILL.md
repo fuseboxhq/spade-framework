@@ -25,6 +25,7 @@ Done means the chosen level reached its halt point, or a tripwire halted it and 
 If the ask names a Scope that already has `.spade/plans/<scope-key>.md`, resume it.
 Read the Plan's approval line, checkboxes, and Halts; check the branch, its commits, and the PR against them.
 When they agree, carry on from the first unticked task at the level already recorded, and say where you are picking up.
+In `local` mode, a Scope still at `evaluating` whose PR merged with a PASS in its body gets the follow-up commit that moves it to `done` and appends the evaluation to the Plan.
 When they disagree (tasks ticked with no matching commits, a missing branch, a PR closed, the Scope edited since approval, uncommitted changes you cannot account for), stop and show the mismatch.
 Never stash, reset, delete, or overwrite work to make a resume fit.
 

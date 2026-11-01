@@ -127,7 +127,7 @@ When Evaluate records its own verdict for a PR, it writes `.spade/guard/reviewed
 The PR body is the durable record.
 After Evaluate, the agent adds the evaluation table, the verdict, and the finding dispositions to the PR body with `gh pr edit`, which does not move the head; an on-green merge passes that body as the squash message (a human merging by hand should do the same), so the record lands in git history.
 Nothing is committed to the PR branch after review to record it; that would make the review and verdict stale.
-In `local` mode the Scope file moves to `status: evaluating` before the Delivery Review, and the move to `done`, with the evaluation appended to the Plan, is a follow-up commit after the merge, never on the reviewed branch.
+In `local` mode the Scope file moves to `status: evaluating` before the Delivery Review, and the move to `done`, with the evaluation appended to the Plan, is a follow-up commit after the merge, never on the reviewed branch: the agent makes it right after an on-green merge, and under `merge: human` the next `/spade` resume of that Scope makes it once it sees the PR merged.
 
 Quick-path work evaluates the PR directly: merged, checks green, PR checklist complete.
 
@@ -304,7 +304,7 @@ It never weighs a trade-off or reads the conversation.
 | Guard | Fires on | Denies when |
 |---|---|---|
 | Protected path | `Edit`, `Write`, `MultiEdit`, `NotebookEdit` | `.spade/guard/<session_id>/mode` exists. In `quick` mode any path matching the fourteen categories denies. In `deliver` mode only secrets and credentials, production data, and permission widening deny; permission widening covers `.spade/config`, `.claude/settings*.json`, `hooks/hooks.json`, `bin/spade-guard`, and any path whose purpose grants or widens a permission. |
-| Merge policy | `Bash` running `gh pr merge`, `glab mr merge`, or a `gh api` merge | `autonomy.deliver.merge` is `human` or absent. Under `on-green`, denies unless the PR is not a draft, is mergeable, has at least one check and every check is SUCCESS or SKIPPED, `.spade/guard/reviewed-head-<pr>` reads `<head sha> PASS` for the current head, and the command pins that head with `--match-head-commit` and a literal SHA, and the merge floor (§ Ship and merge policy) passes over every changed file listed by `gh api .../pulls/<n>/files`, with the listed count equal to `changedFiles`. `glab` is not verified and denies under `on-green`. |
+| Merge policy | `Bash` running `gh pr merge`, `glab mr merge`, or a `gh api` merge | `autonomy.deliver.merge` is `human` or absent. Under `on-green`, denies unless the PR is not a draft, is mergeable, has at least one check and every check is SUCCESS or SKIPPED, `.spade/guard/reviewed-head-<pr>` reads `<head sha> PASS` for the current head, and the command pins that head exactly once with `--match-head-commit` and a literal SHA and does not use `--admin`, and the merge floor (§ Ship and merge policy) passes over every changed file listed by `gh api .../pulls/<n>/files`, with the listed count equal to `changedFiles`. `glab` is not verified and denies under `on-green`. |
 | Stage all | `Bash` running `git add -A`, `--all`, or `.` | `guards.deny_stage_all: true`. Off by default. |
 
 **Markers.** `SessionStart` writes `.spade/guard/<session_id>/live`; `SessionEnd` removes the session directory.
@@ -330,7 +330,7 @@ A check that needs a literal value, such as the merge head pin, fails rather tha
 In a consumer repository `src/` is application code.
 
 **Where they ship.** The Claude plugin carries `hooks/hooks.json` and `scripts/spade-guard`, and this repository registers the same hooks in `.claude/settings.json`.
-A clone install ships `~/.spade/bin/spade-guard` without registering hooks; to opt in, run `~/.spade/setup --host claude --hooks`, which merges the entries from `src/hooks/hooks.json` into `~/.claude/settings.json` with the absolute guard path and keeps every other setting.
+A clone install ships `~/.spade/bin/spade-guard` without registering hooks; to opt in, run `~/.spade/setup --host claude --hooks`, which merges the entries from `src/hooks/hooks.json` into `~/.claude/settings.json` with the absolute guard path and keeps every other setting; `setup.ps1` has no equivalent yet, so on Windows copy the entries by hand.
 Codex has no hook surface.
 `tests/hooks/guards.sh` pins the guard's behaviour; change this section and the guard together.
 
