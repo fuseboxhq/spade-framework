@@ -284,11 +284,11 @@ case "${1:-}" in
     --host)
         [ "$#" -eq 2 ] || { [ "$#" -eq 3 ] && [ "$3" = --hooks ]; } \
             || { print_error "--host requires claude, codex, or all, optionally followed by --hooks"; exit 1; }
-        install_global "$2"
-        if [ "${3:-}" = --hooks ]; then
-            [ "$2" != codex ] || { print_error "--hooks needs the claude host; Codex has no hook surface"; exit 1; }
-            register_hooks
+        if [ "${3:-}" = --hooks ] && [ "$2" = codex ]; then
+            print_error "--hooks needs the claude host; Codex has no hook surface"; exit 1
         fi
+        install_global "$2"
+        [ "${3:-}" != --hooks ] || register_hooks
         ;;
     *)
         print_error "Unknown option: $1"

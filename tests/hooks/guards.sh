@@ -330,16 +330,20 @@ expect_allow "floor, auth code merges on-green" "$(merge_files 1 '[{"filename":"
 expect_allow "floor, additive SQL migration" "$(merge_files 1 '[{"filename":"db/migrations/002_add_email.sql","patch":"+ALTER TABLE users ADD COLUMN email text;"}]')"
 expect_deny "floor, SQL migration dropping a table" "$(merge_files 1 '[{"filename":"db/migrations/003.sql","patch":"+DROP TABLE users;"}]')"
 expect_deny "floor, Rails remove_column" "$(merge_files 1 '[{"filename":"db/migrate/20261101_x.rb","patch":"+    remove_column :users, :email"}]')"
+expect_deny "floor, Alembic drop_table" "$(merge_files 1 '[{"filename":"alembic/versions/1a2b_x.py","patch":"+    op.drop_table(\"users\")"}]')"
 expect_deny "floor, Django AlterField" "$(merge_files 1 '[{"filename":"app/migrations/0004_x.py","patch":"+        migrations.AlterField(model_name=\"u\")"}]')"
 expect_allow "floor, removed line in a migration is not an added step" "$(merge_files 1 '[{"filename":"db/migrations/004.sql","patch":"-DROP TABLE old;\n+CREATE TABLE t (id int);"}]')"
 expect_deny "floor, migration patch unavailable" "$(merge_files 1 '[{"filename":"db/migrations/005.sql"}]')"
 expect_deny "floor, fewer files listed than changed" "$(merge_files 101 '[{"filename":"src/app.ts","patch":"+a"}]')"
 expect_deny "floor, files call returns nothing" "$(merge_files 1 '')"
+expect_deny "floor, gh api error object whose key count matches" "$(merge_files 3 '{"message":"Not Found","documentation_url":"https://docs.github.com/rest","status":"404"}')"
+expect_deny "floor, file name with a line break" "$(merge_files 1 '[{"filename":"notes\nreadme.md","patch":"+x"}]')"
 write_config on-green false
 printf '  human_merge_paths: "billing/**, infra/*.yaml"\n' >> "$project/.spade/config"
 expect_deny "floor, owner-listed path" "$(merge_files 1 '[{"filename":"billing/charge.ts","patch":"+x"}]')"
 expect_allow "floor, path outside the owner list" "$(merge_files 1 '[{"filename":"src/charge.ts","patch":"+x"}]')"
 write_config on-green false
+expect_deny "on-green, a second merge chained after a checked one" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123; gh pr merge 42 --admin"}')")"
 expect_deny "on-green, glab merge unsupported" "$(run_guard "$(pre_tool Bash '{"command":"glab mr merge 7"}')")"
 
 # Missing jq denies loudly.
