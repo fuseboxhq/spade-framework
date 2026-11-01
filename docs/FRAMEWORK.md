@@ -115,11 +115,15 @@ External-state and human-only criteria (a stakeholder sign-off, a production met
 Findings from the Delivery Review feed the verdict.
 
 The verdict is PASS, PARTIAL, or FAIL.
-The agent records it itself when guards are live (§ Mechanical guards), every row is met with fresh evidence on the reviewed head, and the Delivery Review has no open blocking finding.
+The agent records it itself when guards are live (§ Mechanical guards), every row is met with fresh evidence on the reviewed head, and the Delivery Review has no open blocking finding: every finding has a disposition, none is escalated, every contest cites evidence, and no lens is `not run` (§ Review).
 Otherwise the agent recommends a verdict and the human records it.
 Whoever records PASS moves the Scope to Done; PARTIAL, FAIL, or any unconfirmed row leaves it in Evaluating.
 
 When Evaluate records its own verdict for a PR, it writes `.spade/guard/reviewed-head-<pr>` as `<head sha> <VERDICT>` so the merge guard can check it.
+
+The PR body is the durable record.
+After Evaluate, the agent adds the evaluation table, the verdict, and the finding dispositions to the PR body with `gh pr edit`, which does not move the head, and the squash merge carries that body into the commit message, so the record lands in git history.
+Nothing is committed after review to record it; that would make the review and verdict stale.
 
 Quick-path work evaluates the PR directly: merged, checks green, PR checklist complete.
 
@@ -188,11 +192,11 @@ Everything above still applies; this is what it adds.
 3. **Arm the guard.** If `.spade/guard/$CLAUDE_CODE_SESSION_ID/live` exists, guards are live. Write `deliver` to `.spade/guard/$CLAUDE_CODE_SESSION_ID/mode` and remove it on every exit (halt, abort, merge).
 4. **Fix the base.** Record the exact base commit SHA the review range will start from.
 5. **Build.** Deliver the tasks (§ Deliver), checking tripwire 6 as the diff takes shape.
-6. **Open the PR.** Refuse to open one when the project already has `autonomy.deliver.max_open_prs` (default 3) open Deliver PRs; halt instead. The PR body leads with the approach, the rejected forks and why each lost, and the calls the agent made on its own, then a **Protected paths** section (touched categories, or `none`). Apply `/unslop` to the title and body.
+6. **Open the PR.** Refuse to open one when the project already has `autonomy.deliver.max_open_prs` (default 3) open Deliver PRs; halt instead. The PR body leads with the approach, the rejected forks and why each lost, and the calls the agent made on its own, then **Risk** (what could break and who would notice), **How to revert** (the revert or flag that undoes it), and **Protected paths** (touched categories, or `none`). Apply `/unslop` to the title and body.
 7. **CodeRabbit, if present.** Wait for one CodeRabbit pass (at most 10 minutes). Apply only small local fixes that do not add files or touch dependencies, permissions, security-sensitive paths, or agent-behaviour files; leave everything else on the PR. CodeRabbit never replaces the Delivery Review.
 8. **Checks and Delivery Review.** Resolve the final head SHA, run the project's checks, and run `/spade-review` in Delivery Review mode on exactly base..head.
-9. **Evaluate.** Run `/spade-evaluate` on the reviewed head.
-10. **Merge or halt.** Under `on-green` with guards live and a recorded PASS on the current head, merge pinned to that head. Otherwise halt for the human. Any commit after review makes the review, the checks, and the verdict stale; rerun them before merging.
+9. **Evaluate.** Run `/spade-evaluate` on the reviewed head; it writes the evaluation and finding dispositions into the PR body.
+10. **Merge or halt.** Under `on-green` with guards live and a recorded PASS on the current head, merge pinned to that head with the PR body as the squash message: save the body (`gh pr view <pr> --json body -q .body > <file>`), then `gh pr merge <pr> --squash --match-head-commit <sha> --body-file <file>`, PR number first. Otherwise halt for the human. Any commit after review makes the review, the checks, and the verdict stale; rerun them before merging.
 
 An abort signal (`.spade/abort`, or `autonomy.deliver.abort: true`) is checked between steps; on abort, stop and leave the work in place.
 
