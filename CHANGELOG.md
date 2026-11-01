@@ -5,6 +5,31 @@ Versions follow [semver](https://semver.org/) at the framework level
 (consumer fragments carry their own version stamp via
 `<!-- SPADE-FRAMEWORK-START vX.Y.Z -->` markers).
 
+## [6.1.0] - 2026-11-01
+
+This release takes a few lessons from Google's Elephant-Goldfish Model and Anthropic's "Solving code review at Anthropic" post.
+On-green merging still works for ordinary changes, but a small set of risky ones need a person again, review findings can no longer quietly disappear, and every run leaves its record in the PR.
+
+### Changed
+
+- **Merge floor under on-green.** `bin/spade-guard` now lists every changed file in the PR, including the old name of a renamed file, and denies an on-green merge when one touches secrets and credentials, production data, permission widening, or CI. It also denies when a migration's added lines drop, rename, truncate, delete, remove, or alter (SQL, Rails, and Django verbs), when a path matches the new `guards.human_merge_paths` globs in `.spade/config`, or when the file list is incomplete. Auth and crypto code still merges on green once review and Evaluate pass. This partly undoes the v5 narrowing of tripwire 6, at the merge step only.
+- **Finding dispositions.** Every accepted blocking finding ends as fixed, contested (citing evidence the reviewer could read), escalated, or pre-existing. Severity only changes through a contest with evidence. An escalated finding or an evidence-free contest blocks an agent-recorded PASS.
+- **A reviewer that did not run is not a clean review.** A reviewer is retried once; if it still fails it is reported as `not run`, which blocks an agent-recorded PASS.
+- **Pre-existing findings.** The reviewer reports problems in code the diff did not change under `Pre-existing`. They do not block, and each one becomes a Lead.
+- **Three-round Delivery Review cap.** Rounds 2 and 3 cover the new commits plus open findings, settled findings are not reopened, and the round that supports PASS still covers the full base..head. A blocker still open after round 3 is tripwire 2.
+- **Evaluate respects the reviewer.** A criterion the Delivery Review answered "not met" cannot be recorded as met without a fixed or contested disposition.
+- **The PR body is the record.** Deliver PR bodies gain **Risk** and **How to revert**. After Evaluate, the evaluation table and finding dispositions go into the PR body, and an on-green merge uses that body as the squash message, so the record lands in git history without a commit after review.
+- **Plans snapshot the acceptance criteria.** Every Plan carries a copy of the Scope's criteria, so the repository keeps the finish line even when the Scope lives in Linear.
+
+### Added
+
+- `./setup --hooks` (or `--host claude --hooks`) registers the guard hooks in `~/.claude/settings.json` for a clone install, with the absolute guard path. It replaces earlier SPADE guard entries and keeps every other setting. Clone installs have never registered hooks before, so their guards were inert.
+
+### Compatibility
+
+- Consumers update through the 6.0.1 to 6.1.0 `refresh_fragments` unit.
+- Repositories on `merge: on-green` will see the agent halt for a human merge on CI, secrets, permission, and destructive migration changes it used to merge itself.
+
 ## [6.0.1] - 2026-09-25
 
 ### Fixed

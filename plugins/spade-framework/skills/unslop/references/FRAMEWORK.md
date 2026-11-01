@@ -435,4 +435,4 @@ Host-managed plugins update only through their host manager.
 
 ---
 
-*The SPADE Framework v6.0.1, September 2026, Fusebox HQ*
+*The SPADE Framework v6.1.0, November 2026, Fusebox HQ*
