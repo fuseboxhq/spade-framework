@@ -12,7 +12,7 @@ set -euo pipefail
 # Checks:
 #   1. examples/example-scope.md has **Intent:** and the Acceptance criteria,
 #      Constraints, and Out of scope headings /spade-scope writes.
-#   2. examples/example-plan.md has an approval line, Approach with rejected
+#   2. examples/example-plan.md has an approval line, Acceptance criteria, Approach with rejected
 #      forks, Risks, Tasks, and Halts, and every task is a checkbox line that
 #      says "done when" and "verify with" (docs/FRAMEWORK.md § Plan).
 #   3. templates/INTENT.md and examples/example-intent.md carry the INTENT.md
@@ -70,6 +70,7 @@ require_in_plan() {
 }
 
 require_in_plan '^Approved by ' "an approval line"
+require_in_plan '^## Acceptance criteria' "Acceptance criteria"
 require_in_plan '^## Approach' "Approach"
 require_in_plan 'Rejected forks' "rejected forks"
 require_in_plan '^## Risks' "Risks"

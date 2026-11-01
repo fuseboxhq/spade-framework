@@ -3,6 +3,13 @@
 Scope: `examples/example-scope.md`
 Approved by Priya Shah, 2026-04-08.
 
+## Acceptance criteria
+1. A Temporal worker runs on a configurable schedule, every 5 minutes by default, visible in the Temporal Cloud schedule list.
+2. A record that lands in the Databricks telemetry table appears in the `argus-telemetry` index within 5 minutes, checked by the integration test's end-to-end timing assertion.
+3. Indexed documents validate against the Argus data model v2 JSON schema; the integration test fails on any invalid document.
+4. Malformed records go to the `argus-telemetry-dlq` index with the rejection reason, covered by unit tests for each rejection rule.
+5. A failed worker run posts to #argus-alerts within one minute, shown by forcing a failure in staging.
+
 ## Approach
 Start from `consumer-template/` and replace its Kafka consumer with a Temporal workflow of two activities: query Databricks through the SQL connector, then normalise and bulk-index into Elasticsearch.
 Validation runs inside normalisation, and rejected records go to a dead-letter index so nothing is dropped silently.

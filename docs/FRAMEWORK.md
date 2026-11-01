@@ -54,6 +54,9 @@ It is short and lives at `.spade/plans/<scope-key>.md`, where `<scope-key>` is t
 Scope: <link or path>
 Approved by <human name | Deliver auto-approval>, <date>.
 
+## Acceptance criteria
+A copy of the Scope's criteria as they stood at approval, so the repository keeps the finish line even when the Scope lives in a tracker.
+
 ## Approach
 What we will build and how, in a few sentences.
 Rejected forks, each with the reason it lost.
