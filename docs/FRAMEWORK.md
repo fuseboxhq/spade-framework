@@ -329,7 +329,7 @@ A check that needs a literal value, such as the merge head pin, fails rather tha
 In a consumer repository `src/` is application code.
 
 **Where they ship.** The Claude plugin carries `hooks/hooks.json` and `scripts/spade-guard`, and this repository registers the same hooks in `.claude/settings.json`.
-A clone install ships `~/.spade/bin/spade-guard` without registering hooks; to opt in, copy the entries from `src/hooks/hooks.json` into `~/.claude/settings.json` with the command `~/.spade/bin/spade-guard`.
+A clone install ships `~/.spade/bin/spade-guard` without registering hooks; to opt in, run `~/.spade/setup --host claude --hooks`, which merges the entries from `src/hooks/hooks.json` into `~/.claude/settings.json` with the absolute guard path and keeps every other setting.
 Codex has no hook surface.
 `tests/hooks/guards.sh` pins the guard's behaviour; change this section and the guard together.
 

@@ -26,6 +26,7 @@ Put effort into the approach, the forks you rejected, and the risks; keep tasks 
 
 Use the format in `references/FRAMEWORK.md` § Plan.
 
+- **Acceptance criteria.** Copy the Scope's criteria as written, so the repository keeps the finish line the Plan was approved against.
 - **Approach.** What will be built and how, the patterns and libraries it uses, and the forks you rejected, each with the reason it lost.
 - **Risks.** Assumptions that could be wrong and what changes if they are. Name any conflict with ARCHITECTURE.md or ANTI-PATTERNS.md here; a conflict needs the human's explicit approval.
 - **Tasks.** Checkbox lines in delivery order, each an outcome with "done when" and "verify with". Prefer vertical slices a user, caller, or operator can observe; a preparatory task says what it enables. Mark work that needs a human with `(human)`, for example a stakeholder decision, access only a person has, or a physical check.

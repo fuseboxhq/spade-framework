@@ -25,7 +25,7 @@ every PR; run them locally before pushing with:
 | `lint-codex-plugin.sh`          | Repo-local and installable Codex plugin manifests, marketplaces, and inventories are valid. |
 | `lint-install-projections.sh`   | Bash and PowerShell global installers consume exact SHA-256 manifests, remain idempotent, remove stale owned files, and reject unsafe destinations. |
 | `lint-lifecycle.sh`             | Capability authority, discrete migrations, immutable release-derived fixtures, resume and rollback, diagnostics, projection integrity, and unsupported states satisfy the lifecycle contract. |
-| `lint-hooks.sh`                 | Runs `tests/hooks/guards.sh` against `bin/spade-guard`: protected paths by mode, the merge policy, and the stage-all deny. |
+| `lint-hooks.sh`                 | Runs `tests/hooks/guards.sh` against `bin/spade-guard` (protected paths by mode, the merge policy and merge floor, the stage-all deny) and `tests/hooks/setup-hooks.sh` (`setup --hooks` registration). |
 
 ## Dependencies
 

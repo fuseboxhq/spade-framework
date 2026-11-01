@@ -453,6 +453,71 @@ rollup_green() {
     ' >/dev/null 2>&1
 }
 
+merge_reason() {
+    # Arguments: project-relative path. Prints why merging a change to this path
+    # still needs a human under on-green, or nothing. This is the merge floor in
+    # docs/FRAMEWORK.md § Ship and merge policy: the deliver-mode hard-halt
+    # categories, CI, and the owner's guards.human_merge_paths globs. It stays
+    # deliberately short of the fourteen categories, which would match
+    # package.json and this repository's src/ and switch on-green off entirely.
+    category=$(protected_category "$1" deliver)
+    [ -n "$category" ] && { echo "$category"; return; }
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        .github/workflows/*|.github/actions/*|.gitlab-ci*|jenkinsfile*|.circleci/*|azure-pipelines*|bitbucket-pipelines*)
+            echo "CI"; return ;;
+    esac
+    # Globs are matched with case, where * also crosses /; set -f stops the
+    # unquoted split from expanding them against the working directory.
+    set -f
+    old_ifs="$IFS"; IFS=','
+    for pattern in $(config_value guards.human_merge_paths); do
+        pattern=$(printf '%s' "$pattern" | sed 's/^ *//; s/ *$//')
+        [ -n "$pattern" ] || continue
+        case "$1" in $pattern) IFS="$old_ifs"; set +f; echo "owner-listed path $pattern"; return ;; esac
+    done
+    IFS="$old_ifs"; set +f
+}
+
+is_migration() {
+    # Arguments: project-relative path. Succeeds for a migration file. The
+    # general classifier files *.sql under schemas first, so it cannot answer this.
+    has_word_prefix "$(path_words "$1")" migrat && return 0
+    case "$1" in db/migrate/*|*/db/migrate/*) return 0 ;; esac
+    return 1
+}
+
+destructive_patch() {
+    # Reads a unified diff on stdin. Succeeds when an added line drops, renames,
+    # truncates, deletes, removes, or alters, in SQL or the usual ORM verbs
+    # (remove_column, RemoveField, change_column, AlterField). A substring match
+    # over-matches on purpose: a false hit only costs a human merge.
+    grep '^+' | grep -v '^+++' | grep -Eiq 'drop|rename|truncate|delete|remove|alter[[:space:]]+column|change_column|alterfield'
+}
+
+guard_merge_floor() {
+    # Arguments: PR number, changed-file count from gh pr view. Denies unless
+    # every changed file is listed and none needs a human merge. Old names of
+    # renamed files are checked too, so moving a workflow away is still CI.
+    files_json=$(cd "$project_dir" && gh api --paginate "repos/{owner}/{repo}/pulls/$1/files" 2>/dev/null | jq -s 'add // []' 2>/dev/null)
+    listed=$(printf '%s' "$files_json" | jq 'length' 2>/dev/null)
+    [ -n "$listed" ] && [ "$listed" = "$2" ] && [ "$listed" -gt 0 ] \
+        || deny "SPADE guard: listed ${listed:-no} of ${2:-unknown} changed files for PR $1, so the merge floor cannot see the whole change. Unknown state denies."
+    paths=$(printf '%s' "$files_json" | jq -r '.[] | .filename, (.previous_filename // empty)')
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        reason=$(merge_reason "$path")
+        [ -z "$reason" ] || deny "SPADE guard: PR $1 changes '$path' ($reason). That still needs a human merge under on-green."
+        is_migration "$path" || continue
+        patch=$(printf '%s' "$files_json" | jq -r --arg f "$path" '[.[] | select(.filename == $f or .previous_filename == $f)][0].patch // empty')
+        [ -n "$patch" ] || deny "SPADE guard: PR $1 changes migration '$path' and its patch is unavailable, so it cannot be checked for destructive steps. A human merges it."
+        if printf '%s\n' "$patch" | destructive_patch; then
+            deny "SPADE guard: PR $1 adds a destructive step to migration '$path' (drop, rename, truncate, delete, remove, or alter). A human merges it."
+        fi
+    done <<EOF
+$paths
+EOF
+}
+
 guard_merge() {
     merge=$(printf '%s' "$segments" | merge_segment)
     [ -n "$merge" ] || return 0
@@ -469,7 +534,7 @@ guard_merge() {
         number=$(cd "$project_dir" && gh pr view --json number -q .number 2>/dev/null)
     fi
     [ -n "$number" ] || deny "SPADE guard: could not resolve which PR this merge targets. Name the PR number explicitly."
-    view=$(cd "$project_dir" && gh pr view "$number" --json isDraft,mergeable,headRefOid,statusCheckRollup 2>/dev/null)
+    view=$(cd "$project_dir" && gh pr view "$number" --json isDraft,mergeable,headRefOid,statusCheckRollup,changedFiles 2>/dev/null)
     [ -n "$view" ] || deny "SPADE guard: gh pr view $number returned nothing, so the PR state is unknown. Unknown state denies."
     is_draft=$(printf '%s' "$view" | jq -r '.isDraft')
     mergeable=$(printf '%s' "$view" | jq -r '.mergeable')
@@ -493,6 +558,7 @@ guard_merge() {
     ')
     [ "$pinned" = ok ] \
         || deny "SPADE guard: pin the merge to the reviewed head with a literal SHA the guard can read: gh pr merge $number --match-head-commit $head_sha ..."
+    guard_merge_floor "$number" "$(printf '%s' "$view" | jq -r '.changedFiles // empty')"
 }
 
 case "$event" in

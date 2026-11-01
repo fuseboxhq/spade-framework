@@ -42,7 +42,7 @@ If the work is quick-sized, hand it to `/spade-quick` and stop.
 - **Stub.** Create the work item with a title and a one-line placeholder (a Linear issue, or a stub Scope file in `local` mode), then stop.
 - **Scope.** Run `/spade-scope` and stop when the Scope is locked.
 - **Plan.** Run `/spade-scope`, then `/spade-plan` (under `/spade` it writes the Plan and stops), then `/spade-review` on the Scope and Plan together. Then ask for approval the way `/spade-plan` describes under Approval, with the review result in front of the human, and stop.
-- **Deliver.** Follow `references/FRAMEWORK.md` § The Deliver level step by step. `/spade-plan` writes the Plan and stops; you record the approval.
+- **Deliver.** Follow `references/FRAMEWORK.md` § The Deliver level step by step. `/spade-plan` writes the Plan and stops; you record the approval. The PR body carries **Risk** and **How to revert**, and after Evaluate the evaluation and finding dispositions; an on-green merge uses that body as the squash message.
 
 Keep the Scope's status current as the run moves (Scoped, Planning, Approval, Delivering, Evaluating, Done): the issue status in `linear` mode, the `status:` frontmatter of the Scope file in `local` mode.
 

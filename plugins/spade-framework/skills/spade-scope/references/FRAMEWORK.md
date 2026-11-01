@@ -54,6 +54,9 @@ It is short and lives at `.spade/plans/<scope-key>.md`, where `<scope-key>` is t
 Scope: <link or path>
 Approved by <human name | Deliver auto-approval>, <date>.
 
+## Acceptance criteria
+A copy of the Scope's criteria as they stood at approval, so the repository keeps the finish line even when the Scope lives in a tracker.
+
 ## Approach
 What we will build and how, in a few sentences.
 Rejected forks, each with the reason it lost.
@@ -115,11 +118,15 @@ External-state and human-only criteria (a stakeholder sign-off, a production met
 Findings from the Delivery Review feed the verdict.
 
 The verdict is PASS, PARTIAL, or FAIL.
-The agent records it itself when guards are live (§ Mechanical guards), every row is met with fresh evidence on the reviewed head, and the Delivery Review has no open blocking finding.
+The agent records it itself when guards are live (§ Mechanical guards), every row is met with fresh evidence on the reviewed head, and the Delivery Review has no open blocking finding: every finding has a disposition, none is escalated, every contest cites evidence, and no lens is `not run` (§ Review).
 Otherwise the agent recommends a verdict and the human records it.
 Whoever records PASS moves the Scope to Done; PARTIAL, FAIL, or any unconfirmed row leaves it in Evaluating.
 
 When Evaluate records its own verdict for a PR, it writes `.spade/guard/reviewed-head-<pr>` as `<head sha> <VERDICT>` so the merge guard can check it.
+
+The PR body is the durable record.
+After Evaluate, the agent adds the evaluation table, the verdict, and the finding dispositions to the PR body with `gh pr edit`, which does not move the head, and the squash merge carries that body into the commit message, so the record lands in git history.
+Nothing is committed after review to record it; that would make the review and verdict stale.
 
 Quick-path work evaluates the PR directly: merged, checks green, PR checklist complete.
 
@@ -132,6 +139,7 @@ The human owns Ship and sets the merge policy in `.spade/config`:
   Without guards live, the human may still ask the agent to merge once checks are green.
 - `autonomy.deliver.merge: on-green`: the agent may merge a PR whose recorded verdict is PASS on the current head, whose checks are green, with the merge pinned to that head (`gh pr merge <pr> --match-head-commit <sha>`).
   The guard enforces every condition.
+  A few changes still need a human merge under `on-green`: any changed path (old or new name) in secrets and credentials, production data, permission widening, or CI; a migration whose added lines drop, rename, truncate, delete, remove, or alter; and any path matching `guards.human_merge_paths` (comma-separated globs in `.spade/config`). Other security categories, such as auth or crypto code, merge on green once review and Evaluate pass.
 
 A merge authorisation covers the merge only; deploys need their own.
 
@@ -154,7 +162,7 @@ Before authoring a Scope, `/spade` checks the fast-track gate (§ Fast-track) an
 Between a locked Scope and the level's halt point, `/spade` keeps going without asking unless a tripwire fires:
 
 1. **Strategic fork.** Two viable options differ materially (cost, reversibility, architecture, user-visible behaviour) and the Scope does not choose between them. A choice with an obvious default is not a fork: pick it and note why.
-2. **Blocking review finding.** A reviewer reports a problem it would block the merge for and the fix changes the approach.
+2. **Blocking review finding.** A reviewer reports a problem it would block the merge for and the fix changes the approach, or a blocking finding is still open after the third Delivery Review round.
 3. **Architecture conflict.** The Scope or Plan conflicts with ARCHITECTURE.md, ANTI-PATTERNS.md, or a stated constraint.
 4. **Unverifiable criterion.** An acceptance criterion cannot be checked by a command or named evidence.
 5. **Size ceiling.** The Plan exceeds `autonomy.size_ceiling` (default 7 tasks or 12 changed files).
@@ -187,11 +195,11 @@ Everything above still applies; this is what it adds.
 3. **Arm the guard.** If `.spade/guard/$CLAUDE_CODE_SESSION_ID/live` exists, guards are live. Write `deliver` to `.spade/guard/$CLAUDE_CODE_SESSION_ID/mode` and remove it on every exit (halt, abort, merge).
 4. **Fix the base.** Record the exact base commit SHA the review range will start from.
 5. **Build.** Deliver the tasks (§ Deliver), checking tripwire 6 as the diff takes shape.
-6. **Open the PR.** Refuse to open one when the project already has `autonomy.deliver.max_open_prs` (default 3) open Deliver PRs; halt instead. The PR body leads with the approach, the rejected forks and why each lost, and the calls the agent made on its own, then a **Protected paths** section (touched categories, or `none`). Apply `/unslop` to the title and body.
+6. **Open the PR.** Refuse to open one when the project already has `autonomy.deliver.max_open_prs` (default 3) open Deliver PRs; halt instead. The PR body leads with the approach, the rejected forks and why each lost, and the calls the agent made on its own, then **Risk** (what could break and who would notice), **How to revert** (the revert or flag that undoes it), and **Protected paths** (touched categories, or `none`). Apply `/unslop` to the title and body.
 7. **CodeRabbit, if present.** Wait for one CodeRabbit pass (at most 10 minutes). Apply only small local fixes that do not add files or touch dependencies, permissions, security-sensitive paths, or agent-behaviour files; leave everything else on the PR. CodeRabbit never replaces the Delivery Review.
 8. **Checks and Delivery Review.** Resolve the final head SHA, run the project's checks, and run `/spade-review` in Delivery Review mode on exactly base..head.
-9. **Evaluate.** Run `/spade-evaluate` on the reviewed head.
-10. **Merge or halt.** Under `on-green` with guards live and a recorded PASS on the current head, merge pinned to that head. Otherwise halt for the human. Any commit after review makes the review, the checks, and the verdict stale; rerun them before merging.
+9. **Evaluate.** Run `/spade-evaluate` on the reviewed head; it writes the evaluation and finding dispositions into the PR body.
+10. **Merge or halt.** Under `on-green` with guards live and a recorded PASS on the current head, merge pinned to that head with the PR body as the squash message: save the body (`gh pr view <pr> --json body -q .body > <file>`), then `gh pr merge <pr> --squash --match-head-commit <sha> --body-file <file>`, PR number first. Otherwise halt for the human. Any commit after review makes the review, the checks, and the verdict stale; rerun them before merging.
 
 An abort signal (`.spade/abort`, or `autonomy.deliver.abort: true`) is checked between steps; on abort, stop and leave the work in place.
 
@@ -238,11 +246,16 @@ When ANTI-PATTERNS.md has many rules, split them across reviewers so each rule g
 
 The coordinator checks each finding's evidence before accepting it, drops duplicates, and presents what survives.
 Findings are advice; tripwire 2 decides whether a finding halts an unattended run.
+Every accepted blocking finding still ends with one disposition: fixed (with the commit), contested (citing evidence the reviewer could read), escalated to the human, or pre-existing (in code the diff did not change, confirmed against base and raised as a Lead).
+Severity changes only through a contest with evidence.
+A reviewer that fails twice is reported as `not run`, which never counts as a clean review.
+An escalated finding, an evidence-free contest, or a `not run` lens blocks an agent-recorded PASS.
 
 **Delivery Review** reviews a fixed commit range, base..head, against two questions: does the diff meet every acceptance criterion, and does it meet the repository's own standards (ARCHITECTURE.md, PATTERNS.md, ANTI-PATTERNS.md, existing conventions, checks).
 Record the base and head SHAs with the report.
 A later commit makes the review stale.
 An uncommitted working tree gets a provisional review that cannot support PASS.
+Delivery Review runs at most three rounds per PR: rounds after the first cover the new commits plus open findings, settled findings are passed in and not reopened, and the round that supports PASS covers the full base..head on the final head.
 
 Reports are saved under `.spade/reviews/` (gitignored).
 
@@ -290,7 +303,7 @@ It never weighs a trade-off or reads the conversation.
 | Guard | Fires on | Denies when |
 |---|---|---|
 | Protected path | `Edit`, `Write`, `MultiEdit`, `NotebookEdit` | `.spade/guard/<session_id>/mode` exists. In `quick` mode any path matching the fourteen categories denies. In `deliver` mode only secrets and credentials, production data, and permission widening deny; permission widening covers `.spade/config`, `.claude/settings*.json`, `hooks/hooks.json`, `bin/spade-guard`, and any path whose purpose grants or widens a permission. |
-| Merge policy | `Bash` running `gh pr merge`, `glab mr merge`, or a `gh api` merge | `autonomy.deliver.merge` is `human` or absent. Under `on-green`, denies unless the PR is not a draft, is mergeable, has at least one check and every check is SUCCESS or SKIPPED, `.spade/guard/reviewed-head-<pr>` reads `<head sha> PASS` for the current head, and the command pins that head with `--match-head-commit` and a literal SHA. `glab` is not verified and denies under `on-green`. |
+| Merge policy | `Bash` running `gh pr merge`, `glab mr merge`, or a `gh api` merge | `autonomy.deliver.merge` is `human` or absent. Under `on-green`, denies unless the PR is not a draft, is mergeable, has at least one check and every check is SUCCESS or SKIPPED, `.spade/guard/reviewed-head-<pr>` reads `<head sha> PASS` for the current head, and the command pins that head with `--match-head-commit` and a literal SHA, and the merge floor (§ Ship and merge policy) passes over every changed file listed by `gh api .../pulls/<n>/files`, with the listed count equal to `changedFiles`. `glab` is not verified and denies under `on-green`. |
 | Stage all | `Bash` running `git add -A`, `--all`, or `.` | `guards.deny_stage_all: true`. Off by default. |
 
 **Markers.** `SessionStart` writes `.spade/guard/<session_id>/live`; `SessionEnd` removes the session directory.
@@ -316,7 +329,7 @@ A check that needs a literal value, such as the merge head pin, fails rather tha
 In a consumer repository `src/` is application code.
 
 **Where they ship.** The Claude plugin carries `hooks/hooks.json` and `scripts/spade-guard`, and this repository registers the same hooks in `.claude/settings.json`.
-A clone install ships `~/.spade/bin/spade-guard` without registering hooks; to opt in, copy the entries from `src/hooks/hooks.json` into `~/.claude/settings.json` with the command `~/.spade/bin/spade-guard`.
+A clone install ships `~/.spade/bin/spade-guard` without registering hooks; to opt in, run `~/.spade/setup --host claude --hooks`, which merges the entries from `src/hooks/hooks.json` into `~/.claude/settings.json` with the absolute guard path and keeps every other setting.
 Codex has no hook surface.
 `tests/hooks/guards.sh` pins the guard's behaviour; change this section and the guard together.
 
