@@ -127,7 +127,9 @@ When Evaluate records its own verdict for a PR, it writes `.spade/guard/reviewed
 The PR body is the durable record.
 After Evaluate, the agent adds the evaluation table, the verdict, and the finding dispositions to the PR body with `gh pr edit`, which does not move the head; an on-green merge passes that body as the squash message (a human merging by hand should do the same), so the record lands in git history.
 Nothing is committed to the PR branch after review to record it; that would make the review and verdict stale.
-In `local` mode the Scope file moves to `status: evaluating` before the Delivery Review, and the move to `done`, with the evaluation appended to the Plan, is a follow-up commit after the merge, never on the reviewed branch: the agent makes it right after an on-green merge, and under `merge: human` the next `/spade` resume of that Scope makes it once it sees the PR merged.
+In `local` mode the Scope file moves to `status: evaluating` before the Delivery Review.
+The move to `done`, with the evaluation appended to the Plan, is a follow-up commit after the merge rather than on the reviewed branch.
+After an on-green merge the agent makes it right away; under `merge: human` the next `/spade` resume of that Scope makes it once the PR shows as merged.
 
 Quick-path work evaluates the PR directly: merged, checks green, PR checklist complete.
 
