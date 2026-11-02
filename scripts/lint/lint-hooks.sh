@@ -25,4 +25,5 @@ for bad in '{"hooks":{"PreToolUse":[],"SessionStart":[{"hooks":[{"type":"command
     fi
 done
 
-exec "$REPO_ROOT/tests/hooks/guards.sh"
+"$REPO_ROOT/tests/hooks/guards.sh"
+exec "$REPO_ROOT/tests/hooks/setup-hooks.sh"

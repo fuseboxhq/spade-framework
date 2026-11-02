@@ -13,7 +13,7 @@ every PR; run them locally before pushing with:
 |---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
 | `lint-skill-frontmatter.sh`     | Every `.claude/skills/*/SKILL.md` parses and carries `name` + `description`.                                                         |
 | `lint-agents.sh`                | Every `.claude/agents/*.md` parses and carries `name`, `description`, `model`, `tools`, `persona`, `focus`. Skips cleanly if the directory is absent (pre-v1.1.0 consumers). |
-| `lint-examples.sh`              | `example-scope.md` has Intent, Acceptance criteria, Constraints, and Out of scope; `example-plan.md` has an approval line, Approach with rejected forks, Risks, Halts, and checkbox tasks that each say "done when" and "verify with". |
+| `lint-examples.sh`              | `example-scope.md` has Intent, Acceptance criteria, Constraints, and Out of scope; `example-plan.md` has an approval line, Acceptance criteria, Approach with rejected forks, Risks, Halts, and checkbox tasks that each say "done when" and "verify with". |
 | `lint-fragments.sh`             | `fragments/*.md` carry no `SPADE-FRAMEWORK-*` markers (fragments are raw content; markers are added on insertion). `.spade/version` pins a valid `spade_version=X.Y.Z`. |
 | `lint-learnings.sh`             | `.spade/learnings/*.md` carry the required learning frontmatter (`title`, `area`, `tags`, `created`, `status`, `public_safe`); `area` and `status` are in-vocabulary; `created` is `YYYY-MM-DD`. Warns on active entries older than 180 days. |
 | `lint-onboard-idempotency.sh`   | Re-runs `tests/onboard-idempotency.sh` — 15 assertions against the Bundle A marker-replace contract.                                |
@@ -25,7 +25,7 @@ every PR; run them locally before pushing with:
 | `lint-codex-plugin.sh`          | Repo-local and installable Codex plugin manifests, marketplaces, and inventories are valid. |
 | `lint-install-projections.sh`   | Bash and PowerShell global installers consume exact SHA-256 manifests, remain idempotent, remove stale owned files, and reject unsafe destinations. |
 | `lint-lifecycle.sh`             | Capability authority, discrete migrations, immutable release-derived fixtures, resume and rollback, diagnostics, projection integrity, and unsupported states satisfy the lifecycle contract. |
-| `lint-hooks.sh`                 | Runs `tests/hooks/guards.sh` against `bin/spade-guard`: protected paths by mode, the merge policy, and the stage-all deny. |
+| `lint-hooks.sh`                 | Runs `tests/hooks/guards.sh` against `bin/spade-guard` (protected paths by mode, the merge policy and merge floor, the stage-all deny) and `tests/hooks/setup-hooks.sh` (`setup --hooks` registration). |
 
 ## Dependencies
 

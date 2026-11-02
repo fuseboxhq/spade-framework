@@ -67,12 +67,16 @@ clear_mode() {
     rm -f "$project/.spade/guard/$session/mode"
 }
 
-# gh stub: GH_STUB_VIEW holds the JSON `gh pr view` returns.
+# gh stub: GH_STUB_VIEW holds the JSON `gh pr view` returns, GH_STUB_FILES the
+# pages `gh api .../files` returns (default: one ordinary file).
 cat > "$stubs/gh" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
     *"--json number"*) printf '%s\n' "${GH_STUB_NUMBER:-41}" ;;
     *"pr view"*) printf '%s\n' "${GH_STUB_VIEW:-}" ;;
+    *"api --paginate"*"/files"*)
+        if [ -n "${GH_STUB_FILES+set}" ]; then printf '%s\n' "$GH_STUB_FILES"
+        else printf '%s\n' '[{"filename":"src/app.ts","patch":"+x"}]'; fi ;;
 esac
 EOF
 chmod +x "$stubs/gh"
@@ -285,7 +289,7 @@ expect_deny "a chained merge after an escaped quote" "$(run_guard "$(pre_tool Ba
 expect_allow "a command that merely mentions gh pr merge" "$(run_guard "$(pre_tool Bash '{"command":"echo \"gh pr merge 41\""}')")"
 expect_allow "gh pr view is not a merge" "$(run_guard "$(pre_tool Bash '{"command":"gh pr view 41"}')")"
 write_config on-green false
-green='{"isDraft":false,"mergeable":"MERGEABLE","headRefOid":"abc123","statusCheckRollup":[{"conclusion":"SUCCESS"},{"conclusion":"SKIPPED"},{"state":"SUCCESS"}]}'
+green='{"isDraft":false,"mergeable":"MERGEABLE","headRefOid":"abc123","changedFiles":1,"statusCheckRollup":[{"conclusion":"SUCCESS"},{"conclusion":"SKIPPED"},{"state":"SUCCESS"}]}'
 expect_deny "on-green, no reviewed head recorded" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123"}')")"
 printf 'abc123\n' > "$project/.spade/guard/reviewed-head-41"
 expect_deny "on-green, reviewed head without a verdict" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123"}')")"
@@ -309,6 +313,47 @@ expect_deny "on-green, pending check" "$(GH_STUB_VIEW='{"isDraft":false,"mergeab
 expect_deny "on-green, empty rollup" "$(GH_STUB_VIEW='{"isDraft":false,"mergeable":"MERGEABLE","headRefOid":"abc123","statusCheckRollup":[]}' run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --match-head-commit abc123"}')")"
 expect_deny "on-green, not mergeable" "$(GH_STUB_VIEW='{"isDraft":false,"mergeable":"CONFLICTING","headRefOid":"abc123","statusCheckRollup":[{"conclusion":"SUCCESS"}]}' run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --match-head-commit abc123"}')")"
 expect_deny "on-green, gh returns nothing" "$(GH_STUB_VIEW='' run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --match-head-commit abc123"}')")"
+# Merge floor: these still need a human merge under on-green.
+merge_files() {
+    # Arguments: changedFiles count, files JSON. Prints the guard's decision for a pinned PASS merge.
+    GH_STUB_VIEW="$(printf '%s' "$green" | jq -c --argjson n "$1" '.changedFiles = $n')" GH_STUB_FILES="$2" \
+        run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123 --body-file pr.md"}')"
+}
+expect_allow "floor, ordinary code and docs" "$(merge_files 2 '[{"filename":"src/app.ts","patch":"+a"},{"filename":"docs/guide.md","patch":"+b"}]')"
+expect_allow "floor, files split across pages" "$(merge_files 2 '[{"filename":"src/a.ts"}][{"filename":"src/b.ts"}]')"
+expect_deny "floor, CI workflow" "$(merge_files 1 '[{"filename":".github/workflows/ci.yml","patch":"+x"}]')"
+expect_deny "floor, workflow renamed away" "$(merge_files 1 '[{"filename":"docs/ci.yml.off","previous_filename":".github/workflows/ci.yml","status":"renamed"}]')"
+expect_deny "floor, secrets" "$(merge_files 1 '[{"filename":"config/.env.production","patch":"+x"}]')"
+expect_deny "floor, permission widening" "$(merge_files 1 '[{"filename":".claude/settings.json","patch":"+x"}]')"
+expect_deny "floor, production data" "$(merge_files 1 '[{"filename":"scripts/prod/fix_orders.py","patch":"+x"}]')"
+expect_allow "floor, auth code merges on-green" "$(merge_files 1 '[{"filename":"src/auth/login.ts","patch":"+x"}]')"
+expect_allow "floor, additive SQL migration" "$(merge_files 1 '[{"filename":"db/migrations/002_add_email.sql","patch":"+ALTER TABLE users ADD COLUMN email text;"}]')"
+expect_deny "floor, loose match: additive soft-delete column still needs a human" "$(merge_files 1 '[{"filename":"db/migrations/008.sql","patch":"+ALTER TABLE users ADD COLUMN deleted_at timestamp;"}]')"
+expect_deny "floor, SQL migration dropping a table" "$(merge_files 1 '[{"filename":"db/migrations/003.sql","patch":"+DROP TABLE users;"}]')"
+expect_deny "floor, MySQL MODIFY COLUMN" "$(merge_files 1 '[{"filename":"db/migrations/006.sql","patch":"+ALTER TABLE users MODIFY COLUMN age smallint;"}]')"
+expect_deny "floor, Alembic alter_column" "$(merge_files 1 '[{"filename":"alembic/versions/1a2b_x.py","patch":"+    op.alter_column(\"users\", \"email\", type_=sa.String(10))"}]')"
+expect_deny "floor, Postgres ALTER without COLUMN" "$(merge_files 1 '[{"filename":"db/migrations/007.sql","patch":"+ALTER TABLE users ALTER email TYPE varchar(10);"}]')"
+expect_deny "floor, Django AlterUniqueTogether" "$(merge_files 1 '[{"filename":"app/migrations/0005_x.py","patch":"+        migrations.AlterUniqueTogether(name=\"u\", unique_together=set())"}]')"
+expect_deny "floor, Rails remove_column" "$(merge_files 1 '[{"filename":"db/migrate/20261101_x.rb","patch":"+    remove_column :users, :email"}]')"
+expect_deny "floor, Alembic drop_table" "$(merge_files 1 '[{"filename":"alembic/versions/1a2b_x.py","patch":"+    op.drop_table(\"users\")"}]')"
+expect_deny "floor, Django AlterField" "$(merge_files 1 '[{"filename":"app/migrations/0004_x.py","patch":"+        migrations.AlterField(model_name=\"u\")"}]')"
+expect_allow "floor, removed line in a migration is not an added step" "$(merge_files 1 '[{"filename":"db/migrations/004.sql","patch":"-DROP TABLE old;\n+CREATE TABLE t (id int);"}]')"
+expect_deny "floor, migration patch unavailable" "$(merge_files 1 '[{"filename":"db/migrations/005.sql"}]')"
+expect_deny "floor, fewer files listed than changed" "$(merge_files 101 '[{"filename":"src/app.ts","patch":"+a"}]')"
+expect_deny "floor, files call returns nothing" "$(merge_files 1 '')"
+expect_deny "floor, gh api error object whose key count matches" "$(merge_files 3 '{"message":"Not Found","documentation_url":"https://docs.github.com/rest","status":"404"}')"
+expect_deny "floor, file name with a line break" "$(merge_files 1 '[{"filename":"notes\nreadme.md","patch":"+x"}]')"
+write_config on-green false
+printf '  human_merge_paths: "billing/**, infra/*.yaml"\n' >> "$project/.spade/config"
+expect_deny "floor, owner-listed path" "$(merge_files 1 '[{"filename":"billing/charge.ts","patch":"+x"}]')"
+expect_allow "floor, path outside the owner list" "$(merge_files 1 '[{"filename":"src/charge.ts","patch":"+x"}]')"
+write_config on-green false
+expect_deny "on-green, a second merge chained after a checked one" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123; gh pr merge 42 --admin"}')")"
+expect_deny "on-green, --repo elsewhere" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --repo other/repo --squash --match-head-commit abc123"}')")"
+expect_deny "on-green, GH_REPO prefix" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"GH_REPO=other/repo gh pr merge 41 --squash --match-head-commit abc123"}')")"
+expect_deny "on-green, PR URL" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge https://github.com/other/repo/pull/41 --squash --match-head-commit abc123"}')")"
+expect_deny "on-green, --admin" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --admin --match-head-commit abc123"}')")"
+expect_deny "on-green, pin repeated with another head" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123 --match-head-commit def456"}')")"
 expect_deny "on-green, glab merge unsupported" "$(run_guard "$(pre_tool Bash '{"command":"glab mr merge 7"}')")"
 
 # Missing jq denies loudly.

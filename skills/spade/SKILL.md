@@ -25,6 +25,7 @@ Done means the chosen level reached its halt point, or a tripwire halted it and 
 If the ask names a Scope that already has `.spade/plans/<scope-key>.md`, resume it.
 Read the Plan's approval line, checkboxes, and Halts; check the branch, its commits, and the PR against them.
 When they agree, carry on from the first unticked task at the level already recorded, and say where you are picking up.
+In `local` mode, a Scope still at `evaluating` whose PR merged with a PASS in its body for the PR's final head gets the follow-up commit that moves it to `done` and appends the evaluation to the Plan.
 When they disagree (tasks ticked with no matching commits, a missing branch, a PR closed, the Scope edited since approval, uncommitted changes you cannot account for), stop and show the mismatch.
 Never stash, reset, delete, or overwrite work to make a resume fit.
 
@@ -42,9 +43,9 @@ If the work is quick-sized, hand it to `/spade-quick` and stop.
 - **Stub.** Create the work item with a title and a one-line placeholder (a Linear issue, or a stub Scope file in `local` mode), then stop.
 - **Scope.** Run `/spade-scope` and stop when the Scope is locked.
 - **Plan.** Run `/spade-scope`, then `/spade-plan` (under `/spade` it writes the Plan and stops), then `/spade-review` on the Scope and Plan together. Then ask for approval the way `/spade-plan` describes under Approval, with the review result in front of the human, and stop.
-- **Deliver.** Follow `references/FRAMEWORK.md` § The Deliver level step by step. `/spade-plan` writes the Plan and stops; you record the approval.
+- **Deliver.** Follow `references/FRAMEWORK.md` § The Deliver level step by step. `/spade-plan` writes the Plan and stops; you record the approval. The PR body carries **Risk** and **How to revert**, and after Evaluate the evaluation and finding dispositions; an on-green merge uses that body as the squash message.
 
-Keep the Scope's status current as the run moves (Scoped, Planning, Approval, Delivering, Evaluating, Done): the issue status in `linear` mode, the `status:` frontmatter of the Scope file in `local` mode.
+Keep the Scope's status current as the run moves (Scoped, Planning, Approval, Delivering, Evaluating, Done): the issue status in `linear` mode, the `status:` frontmatter of the Scope file in `local` mode, where Evaluating is committed before the Delivery Review and Done lands in a follow-up commit after the merge.
 
 While delivering, tick each task in the Plan file as it finishes and commit the file with the work, so the Plan is always the true state of the run.
 For broad mechanical work, hand slices to isolated agents through `Task`, each in its own worktree, and check each one's evidence before accepting it.

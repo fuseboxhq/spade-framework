@@ -28,6 +28,12 @@ Ask the two questions from `references/FRAMEWORK.md` § Review:
 An uncommitted working tree can receive only a provisional review and cannot support PASS.
 A commit after the review makes the report stale.
 
+Delivery Review runs at most three rounds on one PR.
+Round 1 covers base..head.
+Rounds 2 and 3 cover the new commits (previous head..new head) plus every finding still open, and the prompt lists settled findings (fixed, contested, pre-existing) so they are not raised again.
+The round whose result supports PASS must cover the full base..head on the final head; when the last round was diff-only, run that full pass as round 3.
+If a blocking finding is still open after round 3, stop: that is tripwire 2, and the approach needs rethinking rather than a fourth round.
+
 ## Choose reviewers
 
 Use one general reviewer by default.
@@ -71,13 +77,27 @@ When there are no blocking problems, the reviewer says `No blocking problems.` p
 
 ## Verify and report
 
+If a reviewer fails to run or returns nothing usable, retry it once.
+If it still fails, list that lens as `not run` in the report; a `not run` lens never counts as a clean review and blocks an agent-recorded PASS.
+
 Check each finding against the cited material and reproduce its evidence where practical before accepting it.
 Move anything that cannot be confirmed to the unconfirmed list, with where you looked.
 Drop duplicates and keep the clearest location and failure evidence.
+Confirm each pre-existing item with `git show <base>:<path>` before accepting the tag; raise each confirmed one as a Lead (`/leads`), and it does not block.
+
+Every accepted blocking finding ends with one disposition, recorded in the report:
+
+- **fixed**: name the commit;
+- **contested**: cite evidence the reviewer could have read (a file and line, a command and its output) showing the finding is wrong; wanting to contest is not evidence;
+- **escalated**: only the human can judge it;
+- **pre-existing**: confirmed outside the diff and raised as a Lead.
+
+A finding's severity changes only through a contest with evidence.
+An escalated finding, or a contest without cited evidence, blocks an agent-recorded PASS.
 
 Save the complete report under `.spade/reviews/` with a clear name.
 For Delivery Review, include the base and head SHAs in the saved report.
 
-Present the accepted blocking findings first, followed by unconfirmed items.
+Present the accepted blocking findings first with their dispositions, then any `not run` lens, pre-existing items with their Leads, and unconfirmed items.
 Say plainly when no blocking problems survive verification.
 Apply `/unslop` to report prose without changing locations, commands, evidence, or SHAs.

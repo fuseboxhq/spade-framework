@@ -7,6 +7,7 @@ set -euo pipefail
 # Usage:
 #   ./setup                         # Install both supported hosts
 #   ./setup --host claude|codex|all # Install one or both hosts
+#   ./setup [--host ...] --hooks    # Also register the Claude guard hooks
 #   ./setup --help       # Show help
 #
 # After running this, use /spade-onboard in any project to initialise
@@ -205,6 +206,37 @@ write_install_receipt() {
     mv "$tmp" "$receipt_dir/$host.manifest"
 }
 
+register_hooks() {
+    # Registers the SPADE guard hooks in ~/.claude/settings.json for a clone
+    # install. The entries come from src/hooks/hooks.json with each command
+    # pointed at the installed guard, because ${CLAUDE_PLUGIN_ROOT} is only set
+    # for plugin hooks. Existing spade-guard commands are replaced and every
+    # other command, even one sharing a hook group, is kept, so rerunning is safe. Invalid settings are left untouched.
+    local guard="$HOME/.spade/bin/spade-guard"
+    local settings="$HOME/.claude/settings.json"
+    local current merged ours
+    command -v jq >/dev/null 2>&1 || { print_error "--hooks needs jq"; return 1; }
+    [ -x "$guard" ] || { print_error "Install the claude host first; $guard is missing"; return 1; }
+    assert_no_symlink_components ".claude/settings.json"
+    current='{}'
+    if [ -f "$settings" ]; then
+        current=$(jq -e 'if type == "object" then . else error("not an object") end' "$settings" 2>/dev/null) \
+            || { print_error "$settings is not a JSON object; left untouched"; return 1; }
+    fi
+    ours=$(jq -c --arg cmd "\"$guard\"" '.hooks | walk(if type == "object" and has("command") then .command = $cmd else . end)' "$SCRIPT_DIR/src/hooks/hooks.json")
+    merged=$(printf '%s' "$current" | jq --argjson ours "$ours" '
+        .hooks = (.hooks // {})
+        | reduce ($ours | to_entries[]) as $e (.;
+            .hooks[$e.key] = ([(.hooks[$e.key] // [])[]
+                | .hooks = [(.hooks // [])[] | select((.command // "") | test("spade-guard") | not)]
+                | select(.hooks | length > 0)] + $e.value))')
+    mkdir -p "$HOME/.claude"
+    [ ! -f "$settings" ] || cp "$settings" "$settings.spade-backup"
+    printf '%s\n' "$merged" > "$settings.tmp.$$"
+    mv "$settings.tmp.$$" "$settings"
+    print_success "SPADE guard hooks registered in ~/.claude/settings.json (restart Claude Code to load them)"
+}
+
 install_global() {
     local host="$1"
     echo "Installing SPADE global projections for: $host"
@@ -238,18 +270,26 @@ case "${1:-}" in
         echo "Usage:"
         echo "  ./setup                         Install Claude and Codex projections"
         echo "  ./setup --host claude|codex|all Install selected host projections"
+        echo "  ./setup [--host ...] --hooks    Also register the Claude guard hooks"
         echo "  ./setup --help   Show this help"
         echo ""
         echo "After installing, run /spade-onboard in your agent within any"
         echo "project to initialise SPADE files and fill in architecture docs."
         echo ""
         ;;
-    "")
+    ""|--hooks)
+        [ "$#" -le 1 ] || { print_error "Unknown option: $2"; exit 1; }
         install_global all
+        [ "${1:-}" != --hooks ] || register_hooks
         ;;
     --host)
-        [ "$#" -eq 2 ] || { print_error "--host requires claude, codex, or all"; exit 1; }
+        [ "$#" -eq 2 ] || { [ "$#" -eq 3 ] && [ "$3" = --hooks ]; } \
+            || { print_error "--host requires claude, codex, or all, optionally followed by --hooks"; exit 1; }
+        if [ "${3:-}" = --hooks ] && [ "$2" = codex ]; then
+            print_error "--hooks needs the claude host; Codex has no hook surface"; exit 1
+        fi
         install_global "$2"
+        [ "${3:-}" != --hooks ] || register_hooks
         ;;
     *)
         print_error "Unknown option: $1"

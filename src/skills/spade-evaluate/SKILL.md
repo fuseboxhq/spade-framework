@@ -48,14 +48,17 @@ Apply `/unslop` to the prose, not to commands, SHAs, or the table values.
 ## Recording the verdict
 
 Record the verdict yourself only when guards are live (`.spade/guard/$CLAUDE_CODE_SESSION_ID/live` exists), every row is met with evidence fresh on the reviewed head, and no blocking review finding is open.
+Open includes a finding with no disposition, an escalated finding, a contest that cites no evidence, and any lens the report lists as `not run` (`references/FRAMEWORK.md` § Review).
+A row may not read met where the Delivery Review answered that criterion "not met", unless the finding behind it carries a fixed or contested disposition.
 When you record it and the work has a PR, write `.spade/guard/reviewed-head-<pr>` through `{{SPADE_SHELL}}` as one line, `<reviewed head sha> <VERDICT>`, so the merge guard can check it (`references/FRAMEWORK.md` § Mechanical guards).
 
 Otherwise ask the human through `{{SPADE_ASK_USER}}`: *PASS*, *PARTIAL*, or *FAIL*, with your recommendation first and a plain statement when the evidence does not support PASS.
 
 Then:
 
-- Post the evaluation on the Scope issue (`linear`) or append it to the Plan file (`local`).
-- PASS moves the Scope to Done.
+- When the work has a PR, add the evaluation, verdict, and finding dispositions to the PR body: read the current body, replace or append an `## Evaluation` section, and write the whole body back with `gh pr edit <pr> --body-file <file>`, so the approach, Risk, How to revert, and Protected paths survive; this does not move the head, and the squash merge carries the body into git history.
+- Post the evaluation on the Scope issue (`linear`). In `local` mode the PR body is the record; with no PR, append it to the Plan file and set the Scope's `status:`; with a PR, do both in a follow-up commit after the merge, never on the reviewed branch.
+- PASS moves the Scope to Done (in `local` mode with a PR, through that follow-up commit after the merge).
 - PARTIAL or FAIL leaves it in Evaluating: small defects go back to delivery, a wrong approach goes back to `/spade-plan`.
 - A commit after evaluation makes the verdict stale.
 

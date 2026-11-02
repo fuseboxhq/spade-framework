@@ -28,6 +28,7 @@ autonomy:
 # guarded action while a Deliver run is active.
 guards:
   deny_stage_all: true    # deny git add -A / --all / . here; lints mutate tracked source live
+  # human_merge_paths: "billing/**, infra/*.yaml"  # extra globs that always need a human merge under on-green
 
 # Notes:
 # - This repo is the SPADE framework itself. The loop governs its own work.
