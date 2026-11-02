@@ -328,6 +328,7 @@ expect_deny "floor, permission widening" "$(merge_files 1 '[{"filename":".claude
 expect_deny "floor, production data" "$(merge_files 1 '[{"filename":"scripts/prod/fix_orders.py","patch":"+x"}]')"
 expect_allow "floor, auth code merges on-green" "$(merge_files 1 '[{"filename":"src/auth/login.ts","patch":"+x"}]')"
 expect_allow "floor, additive SQL migration" "$(merge_files 1 '[{"filename":"db/migrations/002_add_email.sql","patch":"+ALTER TABLE users ADD COLUMN email text;"}]')"
+expect_deny "floor, loose match: additive soft-delete column still needs a human" "$(merge_files 1 '[{"filename":"db/migrations/008.sql","patch":"+ALTER TABLE users ADD COLUMN deleted_at timestamp;"}]')"
 expect_deny "floor, SQL migration dropping a table" "$(merge_files 1 '[{"filename":"db/migrations/003.sql","patch":"+DROP TABLE users;"}]')"
 expect_deny "floor, MySQL MODIFY COLUMN" "$(merge_files 1 '[{"filename":"db/migrations/006.sql","patch":"+ALTER TABLE users MODIFY COLUMN age smallint;"}]')"
 expect_deny "floor, Alembic alter_column" "$(merge_files 1 '[{"filename":"alembic/versions/1a2b_x.py","patch":"+    op.alter_column(\"users\", \"email\", type_=sa.String(10))"}]')"

@@ -142,7 +142,7 @@ The human owns Ship and sets the merge policy in `.spade/config`:
   Without guards live, the human may still ask the agent to merge once checks are green.
 - `autonomy.deliver.merge: on-green`: the agent may merge a PR whose recorded verdict is PASS on the current head, whose checks are green, with the merge pinned to that head (`gh pr merge <pr> --match-head-commit <sha>`).
   The guard enforces every condition.
-  A few changes still need a human merge under `on-green`: any changed path (old or new name) in secrets and credentials, production data, permission widening, or CI; a migration whose added lines drop, rename, truncate, delete, remove, or alter; and any path matching `guards.human_merge_paths` (comma-separated globs in `.spade/config`). Other security categories, such as auth or crypto code, merge on green once review and Evaluate pass.
+  A few changes still need a human merge under `on-green`: any changed path (old or new name) in secrets and credentials, production data, permission widening, or CI; a migration whose added lines drop, rename, truncate, delete, remove, or alter (a loose word match, so an additive line whose names contain those words, such as `deleted_at`, also gets a human merge); and any path matching `guards.human_merge_paths` (comma-separated globs in `.spade/config`). Other security categories, such as auth or crypto code, merge on green once review and Evaluate pass.
 
 A merge authorisation covers the merge only; deploys need their own.
 
