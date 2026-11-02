@@ -333,6 +333,7 @@ expect_deny "floor, SQL migration dropping a table" "$(merge_files 1 '[{"filenam
 expect_deny "floor, MySQL MODIFY COLUMN" "$(merge_files 1 '[{"filename":"db/migrations/006.sql","patch":"+ALTER TABLE users MODIFY COLUMN age smallint;"}]')"
 expect_deny "floor, Alembic alter_column" "$(merge_files 1 '[{"filename":"alembic/versions/1a2b_x.py","patch":"+    op.alter_column(\"users\", \"email\", type_=sa.String(10))"}]')"
 expect_deny "floor, Postgres ALTER without COLUMN" "$(merge_files 1 '[{"filename":"db/migrations/007.sql","patch":"+ALTER TABLE users ALTER email TYPE varchar(10);"}]')"
+expect_deny "floor, Django AlterUniqueTogether" "$(merge_files 1 '[{"filename":"app/migrations/0005_x.py","patch":"+        migrations.AlterUniqueTogether(name=\"u\", unique_together=set())"}]')"
 expect_deny "floor, Rails remove_column" "$(merge_files 1 '[{"filename":"db/migrate/20261101_x.rb","patch":"+    remove_column :users, :email"}]')"
 expect_deny "floor, Alembic drop_table" "$(merge_files 1 '[{"filename":"alembic/versions/1a2b_x.py","patch":"+    op.drop_table(\"users\")"}]')"
 expect_deny "floor, Django AlterField" "$(merge_files 1 '[{"filename":"app/migrations/0004_x.py","patch":"+        migrations.AlterField(model_name=\"u\")"}]')"

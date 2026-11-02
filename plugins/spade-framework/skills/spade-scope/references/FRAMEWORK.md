@@ -125,7 +125,7 @@ Whoever records PASS moves the Scope to Done; PARTIAL, FAIL, or any unconfirmed 
 When Evaluate records its own verdict for a PR, it writes `.spade/guard/reviewed-head-<pr>` as `<head sha> <VERDICT>` so the merge guard can check it.
 
 The PR body is the durable record.
-After Evaluate, the agent adds the evaluation table, the verdict, and the finding dispositions to the PR body with `gh pr edit`, which does not move the head; an on-green merge passes that body as the squash message (a human merging by hand should do the same), so the record lands in git history.
+After Evaluate, the agent adds the evaluation table, the verdict, and the finding dispositions to the PR body with `gh pr edit`, keeping every existing section, which does not move the head; an on-green merge passes that body as the squash message (a human merging by hand should do the same), so the record lands in git history.
 Nothing is committed to the PR branch after review to record it; that would make the review and verdict stale.
 In `local` mode the Scope file moves to `status: evaluating` before the Delivery Review.
 The move to `done`, with the evaluation appended to the Plan, is a follow-up commit after the merge rather than on the reviewed branch.
@@ -202,7 +202,7 @@ Everything above still applies; this is what it adds.
 7. **CodeRabbit, if present.** Wait for one CodeRabbit pass (at most 10 minutes). Apply only small local fixes that do not add files or touch dependencies, permissions, security-sensitive paths, or agent-behaviour files; leave everything else on the PR. CodeRabbit never replaces the Delivery Review.
 8. **Checks and Delivery Review.** Resolve the final head SHA, run the project's checks, and run `/spade-review` in Delivery Review mode on exactly base..head.
 9. **Evaluate.** Run `/spade-evaluate` on the reviewed head; it writes the evaluation and finding dispositions into the PR body.
-10. **Merge or halt.** Under `on-green` with guards live and a recorded PASS on the current head, merge pinned to that head with the PR body as the squash message: save the body (`gh pr view <pr> --json body -q .body > <file>`), then `gh pr merge <pr> --squash --match-head-commit <sha> --body-file <file>`, PR number first, with no `--repo` or PR URL. If the merge fails (for example the repository does not allow squash merges), halt for the human rather than trying another method. Otherwise halt for the human. Any commit after review makes the review, the checks, and the verdict stale; rerun them before merging.
+10. **Merge or halt.** Under `on-green` with guards live and a recorded PASS on the current head, merge pinned to that head with the PR body as the squash message: save the body (`gh pr view <pr> --json body -q .body > <file>`), then `gh pr merge <pr> --squash --match-head-commit <sha> --body-file <file>`, PR number first, with no `--repo` or PR URL. If that merge succeeds, make the local-mode follow-up commit (§ Evaluate); if it fails (for example the repository does not allow squash merges), halt for the human rather than trying another method. Under `human`, or without guards live or a PASS on the current head, halt for the human. Any commit after review makes the review, the checks, and the verdict stale; rerun them before merging.
 
 An abort signal (`.spade/abort`, or `autonomy.deliver.abort: true`) is checked between steps; on abort, stop and leave the work in place.
 
@@ -332,7 +332,7 @@ A check that needs a literal value, such as the merge head pin, fails rather tha
 In a consumer repository `src/` is application code.
 
 **Where they ship.** The Claude plugin carries `hooks/hooks.json` and `scripts/spade-guard`, and this repository registers the same hooks in `.claude/settings.json`.
-A clone install ships `~/.spade/bin/spade-guard` without registering hooks; to opt in, run `~/.spade/setup --host claude --hooks`, which merges the entries from `src/hooks/hooks.json` into `~/.claude/settings.json` with the absolute guard path and keeps every other setting; `setup.ps1` has no equivalent yet, so on Windows copy the entries by hand.
+A clone install ships `~/.spade/bin/spade-guard` without registering hooks; to opt in, run `~/.spade/setup --host claude --hooks`, which merges the entries from `src/hooks/hooks.json` into `~/.claude/settings.json` with the absolute guard path and keeps every other setting; `setup.ps1` has no equivalent yet, so on Windows copy the entries by hand and replace each `${CLAUDE_PLUGIN_ROOT}` command with the installed guard path.
 Codex has no hook surface.
 `tests/hooks/guards.sh` pins the guard's behaviour; change this section and the guard together.
 

@@ -490,10 +490,10 @@ is_migration() {
 destructive_patch() {
     # Reads a unified diff on stdin. Succeeds when an added line drops, renames,
     # truncates, deletes, removes, or alters, in SQL or the usual ORM verbs
-    # (remove_column, RemoveField, change_column, AlterField, Alembic alter_column,
+    # (remove_column, RemoveField, change_column, AlterField and the other Django Alter* table operations, Alembic alter_column,
     # MySQL MODIFY or CHANGE, Postgres ALTER ... TYPE on the ALTER TABLE line). A substring match
     # over-matches on purpose: a false hit only costs a human merge.
-    grep '^+' | grep -v '^+++' | grep -Eiq 'drop|rename|truncate|delete|remove|(alter|modify)[[:space:]]+column|alter_column|alter[[:space:]]+table.*[[:space:]](alter|change|modify)[[:space:]]|change_column|alterfield'
+    grep '^+' | grep -v '^+++' | grep -Eiq 'drop|rename|truncate|delete|remove|(alter|modify)[[:space:]]+column|alter_column|alter[[:space:]]+table.*[[:space:]](alter|change|modify)[[:space:]]|change_column|alter(field|uniquetogether|indextogether|modeltable)'
 }
 
 guard_merge_floor() {
