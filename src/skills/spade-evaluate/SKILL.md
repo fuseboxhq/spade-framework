@@ -53,6 +53,7 @@ A row may not read met where the Delivery Review answered that criterion "not me
 When you record it and the work has a PR, write `.spade/guard/reviewed-head-<pr>` through `{{SPADE_SHELL}}` as one line, `<reviewed head sha> <VERDICT>`, so the merge guard can check it (`references/FRAMEWORK.md` § Mechanical guards).
 
 Otherwise ask the human through `{{SPADE_ASK_USER}}`: *PASS*, *PARTIAL*, or *FAIL*, with your recommendation first and a plain statement when the evidence does not support PASS.
+When the human records a verdict for a PR, write the same `reviewed-head-<pr>` line with their verdict, so a PARTIAL can merge under `on-green` when the project sets `autonomy.deliver.merge_partial: true`.
 
 Then:
 

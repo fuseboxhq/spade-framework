@@ -122,7 +122,7 @@ The agent records it itself when guards are live (§ Mechanical guards), every r
 Otherwise the agent recommends a verdict and the human records it.
 Whoever records PASS moves the Scope to Done; PARTIAL, FAIL, or any unconfirmed row leaves it in Evaluating.
 
-When Evaluate records its own verdict for a PR, it writes `.spade/guard/reviewed-head-<pr>` as `<head sha> <VERDICT>` so the merge guard can check it.
+When a verdict is recorded for a PR, by the agent or by the human through the agent, Evaluate writes `.spade/guard/reviewed-head-<pr>` as `<head sha> <VERDICT>` so the merge guard can check it.
 
 The PR body is the durable record.
 After Evaluate, the agent adds the evaluation table, the verdict, and the finding dispositions to the PR body with `gh pr edit`, keeping every existing section, which does not move the head; an on-green merge passes that body as the squash message (a human merging by hand should do the same), so the record lands in git history.
@@ -142,6 +142,8 @@ The human owns Ship and sets the merge policy in `.spade/config`:
   Without guards live, the human may still ask the agent to merge once checks are green.
 - `autonomy.deliver.merge: on-green`: the agent may merge a PR whose recorded verdict is PASS on the current head, whose checks are green, with the merge pinned to that head (`gh pr merge <pr> --match-head-commit <sha>`).
   The guard enforces every condition.
+  With `autonomy.deliver.merge_partial: true` as well, a recorded PARTIAL on the current head also merges, for work whose last criteria can only be checked once it ships, such as a live test.
+  A FAIL verdict still blocks the merge, and PARTIAL leaves the Scope in Evaluating until its open rows are confirmed.
   A few changes still need a human merge under `on-green`: any changed path (old or new name) in secrets and credentials, production data, permission widening, or CI; a migration whose added lines drop, rename, truncate, delete, remove, or alter (a loose word match, so an additive line whose names contain those words, such as `deleted_at`, also gets a human merge); and any path matching `guards.human_merge_paths` (comma-separated globs in `.spade/config`). Other security categories, such as auth or crypto code, merge on green once review and Evaluate pass.
 
 A merge authorisation covers the merge only; deploys need their own.
@@ -202,7 +204,7 @@ Everything above still applies; this is what it adds.
 7. **CodeRabbit, if present.** Wait for one CodeRabbit pass (at most 10 minutes). Apply only small local fixes that do not add files or touch dependencies, permissions, security-sensitive paths, or agent-behaviour files; leave everything else on the PR. CodeRabbit never replaces the Delivery Review.
 8. **Checks and Delivery Review.** Resolve the final head SHA, run the project's checks, and run `/spade-review` in Delivery Review mode on exactly base..head.
 9. **Evaluate.** Run `/spade-evaluate` on the reviewed head; it writes the evaluation and finding dispositions into the PR body.
-10. **Merge or halt.** Under `on-green` with guards live and a recorded PASS on the current head, merge pinned to that head with the PR body as the squash message: save the body (`gh pr view <pr> --json body -q .body > <file>`), then `gh pr merge <pr> --squash --match-head-commit <sha> --body-file <file>`, PR number first, with no `--repo` or PR URL. If that merge succeeds, make the local-mode follow-up commit (§ Evaluate); if it fails (for example the repository does not allow squash merges), halt for the human rather than trying another method. Under `human`, or without guards live or a PASS on the current head, halt for the human. Any commit after review makes the review, the checks, and the verdict stale; rerun them before merging.
+10. **Merge or halt.** Under `on-green` with guards live and a recorded PASS on the current head (or PARTIAL, when `autonomy.deliver.merge_partial` is true), merge pinned to that head with the PR body as the squash message: save the body (`gh pr view <pr> --json body -q .body > <file>`), then `gh pr merge <pr> --squash --match-head-commit <sha> --body-file <file>`, PR number first, with no `--repo` or PR URL. If that merge succeeds, make the local-mode follow-up commit (§ Evaluate); if it fails (for example the repository does not allow squash merges), halt for the human rather than trying another method. Under `human`, or without guards live or a mergeable verdict on the current head, halt for the human. Any commit after review makes the review, the checks, and the verdict stale; rerun them before merging.
 
 An abort signal (`.spade/abort`, or `autonomy.deliver.abort: true`) is checked between steps; on abort, stop and leave the work in place.
 
@@ -306,7 +308,7 @@ It never weighs a trade-off or reads the conversation.
 | Guard | Fires on | Denies when |
 |---|---|---|
 | Protected path | `Edit`, `Write`, `MultiEdit`, `NotebookEdit` | `.spade/guard/<session_id>/mode` exists. In `quick` mode any path matching the fourteen categories denies. In `deliver` mode only secrets and credentials, production data, and permission widening deny; permission widening covers `.spade/config`, `.claude/settings*.json`, `hooks/hooks.json`, `bin/spade-guard`, and any path whose purpose grants or widens a permission. |
-| Merge policy | `Bash` running `gh pr merge`, `glab mr merge`, or a `gh api` merge | `autonomy.deliver.merge` is `human` or absent. Under `on-green`, denies unless the PR is not a draft, is mergeable, has at least one check and every check is SUCCESS or SKIPPED, `.spade/guard/reviewed-head-<pr>` reads `<head sha> PASS` for the current head, and the command pins that head exactly once with `--match-head-commit` and a literal SHA and does not use `--admin`, `--repo`, `GH_REPO`, or a PR URL, and the merge floor (§ Ship and merge policy) passes over every changed file listed by `gh api .../pulls/<n>/files`, with the listed count equal to `changedFiles`. `glab` is not verified and denies under `on-green`. |
+| Merge policy | `Bash` running `gh pr merge`, `glab mr merge`, or a `gh api` merge | `autonomy.deliver.merge` is `human` or absent. Under `on-green`, denies unless the PR is not a draft, is mergeable, has at least one check and every check is SUCCESS or SKIPPED, `.spade/guard/reviewed-head-<pr>` reads `<head sha> PASS` for the current head (or `PARTIAL`, when `autonomy.deliver.merge_partial` is true), and the command pins that head exactly once with `--match-head-commit` and a literal SHA and does not use `--admin`, `--repo`, `GH_REPO`, or a PR URL, and the merge floor (§ Ship and merge policy) passes over every changed file listed by `gh api .../pulls/<n>/files`, with the listed count equal to `changedFiles`. `glab` is not verified and denies under `on-green`. |
 | Stage all | `Bash` running `git add -A`, `--all`, or `.` | `guards.deny_stage_all: true`. Off by default. |
 
 **Markers.** `SessionStart` writes `.spade/guard/<session_id>/live`; `SessionEnd` removes the session directory.

@@ -15,13 +15,14 @@ session="test-session"
 fail=0
 
 write_config() {
-    # Arguments: merge policy, deny_stage_all. Writes a minimal .spade/config.
+    # Arguments: merge policy, deny_stage_all, optional merge_partial. Writes a minimal .spade/config.
     cat > "$project/.spade/config" <<EOF
 mode: local
 autonomy:
   default: deliver
   deliver:
     merge: $1
+    merge_partial: ${3:-false}
 guards:
   deny_stage_all: $2
 EOF
@@ -295,6 +296,11 @@ printf 'abc123\n' > "$project/.spade/guard/reviewed-head-41"
 expect_deny "on-green, reviewed head without a verdict" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123"}')")"
 printf 'abc123 PARTIAL\n' > "$project/.spade/guard/reviewed-head-41"
 expect_deny "on-green, PARTIAL verdict" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123"}')")"
+write_config on-green false true
+expect_allow "on-green, PARTIAL verdict with merge_partial" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123"}')")"
+printf 'abc123 FAIL\n' > "$project/.spade/guard/reviewed-head-41"
+expect_deny "on-green, FAIL verdict even with merge_partial" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123"}')")"
+write_config on-green false
 printf 'abc123 PASS\n' > "$project/.spade/guard/reviewed-head-41"
 expect_deny "on-green, merge not pinned to the reviewed head" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash"}')")"
 expect_allow "on-green, PASS, green checks, pinned to reviewed head" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123"}')")"

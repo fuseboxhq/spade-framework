@@ -558,7 +558,14 @@ guard_merge() {
     reviewed=$(head -n 1 "$reviewed_file" | awk '{print $1}')
     verdict=$(head -n 1 "$reviewed_file" | awk '{print toupper($2)}')
     [ "$reviewed" = "$head_sha" ] || deny "SPADE guard: PR $number head $head_sha differs from the reviewed head $reviewed. Rerun Delivery Review and Evaluate on the new head."
-    [ "$verdict" = PASS ] || deny "SPADE guard: the recorded Evaluate for PR $number at $reviewed is '${verdict:-none}', not PASS. Only a PASS verdict on the current head merges under on-green."
+    # PARTIAL merges only when the owner opted in with autonomy.deliver.merge_partial;
+    # FAIL, or no verdict, never does.
+    case "$verdict" in
+        PASS) ;;
+        PARTIAL) is_true "$(config_value autonomy.deliver.merge_partial)" \
+            || deny "SPADE guard: the recorded Evaluate for PR $number at $reviewed is PARTIAL. PARTIAL merges under on-green only when autonomy.deliver.merge_partial is true in .spade/config." ;;
+        *) deny "SPADE guard: the recorded Evaluate for PR $number at $reviewed is '${verdict:-none}', not PASS or PARTIAL. Only a PASS verdict (or PARTIAL, when autonomy.deliver.merge_partial is true) on the current head merges under on-green." ;;
+    esac
     pinned=$(printf '%s' "$merge" | awk -F'\t' -v sha="$head_sha" '
         {
             for (k = 4; k <= NF; k++) {
