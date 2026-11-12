@@ -5,6 +5,12 @@ Versions follow [semver](https://semver.org/) at the framework level
 (consumer fragments carry their own version stamp via
 `<!-- SPADE-FRAMEWORK-START vX.Y.Z -->` markers).
 
+## [Unreleased]
+
+### Added
+
+- **PARTIAL can merge on green, when the owner opts in.** With `autonomy.deliver.merge_partial: true` in `.spade/config`, `bin/spade-guard` lets an on-green merge go ahead on a recorded PARTIAL as well as PASS, for work whose remaining criteria can only be checked after it ships, such as a live test in production. FAIL, or no verdict, still never merges, every other on-green condition and the human merge floor still apply, and PARTIAL still leaves the Scope in Evaluating. `/spade-evaluate` now writes `reviewed-head-<pr>` for a verdict the human records too, so the guard can see it. Off by default.
+
 ## [6.1.0] - 2026-11-01
 
 This release takes a few lessons from Google's Elephant-Goldfish Model and Anthropic's "Solving code review at Anthropic" post.
