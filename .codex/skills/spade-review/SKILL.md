@@ -55,6 +55,7 @@ Include:
 - the complete Scope and Plan material needed for the review;
 - relevant project context and repository paths;
 - the exact base and head SHAs for Delivery Review;
+- for Delivery Review, the diff itself: the output of `git diff <base>..<head>`, or for a large range the changed-file list and each file's diff, because a reviewer with read-only file tools cannot resolve a SHA range;
 - the two Delivery Review questions when that mode applies;
 - relevant constraints from `ARCHITECTURE.md`, `PATTERNS.md`, and `ANTI-PATTERNS.md`, or instructions to read those files;
 - the required output contract below.

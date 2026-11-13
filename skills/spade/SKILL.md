@@ -48,7 +48,7 @@ If the work is quick-sized, hand it to `/spade-quick` and stop.
 Keep the Scope's status current as the run moves (Scoped, Planning, Approval, Delivering, Evaluating, Done): the issue status in `linear` mode, the `status:` frontmatter of the Scope file in `local` mode, where Evaluating is committed before the Delivery Review and Done lands in a follow-up commit after the merge.
 
 While delivering, tick each task in the Plan file as it finishes and commit the file with the work, so the Plan is always the true state of the run.
-For broad mechanical work, hand slices to isolated agents through `Task`, each in its own worktree, and check each one's evidence before accepting it.
+For broad mechanical work, hand slices to isolated agents through `Agent`, each in its own worktree, and check each one's evidence before accepting it.
 
 ## 5. Tripwires and halts
 

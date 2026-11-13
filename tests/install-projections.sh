@@ -89,7 +89,7 @@ grep -q 'spawn_agent' "$REPO_ROOT/.codex/skills/spade-review/SKILL.md" || {
     echo "FAIL: Codex persona dispatch mapping missing" >&2
     exit 1
 }
-grep -q 'Task' "$REPO_ROOT/.claude/skills/spade-review/SKILL.md" || {
+grep -q 'through `Agent`' "$REPO_ROOT/.claude/skills/spade-review/SKILL.md" || {
     echo "FAIL: Claude persona dispatch mapping missing" >&2
     exit 1
 }
