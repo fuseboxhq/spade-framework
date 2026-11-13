@@ -78,7 +78,7 @@ When there are no blocking problems, the reviewer says `No blocking problems.` p
 
 ## Verify and report
 
-If a reviewer fails to run or returns nothing usable, retry it once.
+If a reviewer fails to run, returns nothing usable, or reports `Not run`, retry it once, with the diff in the prompt if that was what it lacked.
 If it still fails, list that lens as `not run` in the report; a `not run` lens never counts as a clean review and blocks an agent-recorded PASS.
 
 Check each finding against the cited material and reproduce its evidence where practical before accepting it.

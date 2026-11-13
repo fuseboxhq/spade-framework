@@ -1,5 +1,5 @@
 file|.claude/agents/spade-researcher.md|.claude/agents/spade-researcher.md|d7dcb4c19661dbef307c36968c583accd48578b40a4bf015034b41ffabb29999
-file|.claude/agents/spade-reviewer.md|.claude/agents/spade-reviewer.md|6a12d7472e4ee07093352b3b2c8cf60545e20bed9cd8b6a1e6521be7ae24712c
+file|.claude/agents/spade-reviewer.md|.claude/agents/spade-reviewer.md|abf20c46a689f8576a488e6f749b7d3d9cea1f81e2f9f389e6c6bb0aafdfa1eb
 file|.claude/skills/leads/SKILL.md|.claude/skills/leads/SKILL.md|c0f2b45b220e4b9517bbc18d3c1b836a2aa0094b2093094637eb41067f3769d2
 file|.claude/skills/leads/references/FRAMEWORK.md|.claude/skills/leads/references/FRAMEWORK.md|a082761926df3b4e04bd03311a85d91d4be1e1535785e551b22f38c181ed1ae9
 file|.claude/skills/spade-evaluate/SKILL.md|.claude/skills/spade-evaluate/SKILL.md|70ebbdf57365bdf0af31beb0c387d1220d064360f8b5a9b2ac5805ca08ffa237
@@ -15,7 +15,7 @@ file|.claude/skills/spade-quick/SKILL.md|.claude/skills/spade-quick/SKILL.md|da2
 file|.claude/skills/spade-quick/references/FRAMEWORK.md|.claude/skills/spade-quick/references/FRAMEWORK.md|a082761926df3b4e04bd03311a85d91d4be1e1535785e551b22f38c181ed1ae9
 file|.claude/skills/spade-research/SKILL.md|.claude/skills/spade-research/SKILL.md|29a4d17977b704b304d1a55ff6327fe3aa23fed6849459bb539d70b8d54d8d04
 file|.claude/skills/spade-research/references/FRAMEWORK.md|.claude/skills/spade-research/references/FRAMEWORK.md|a082761926df3b4e04bd03311a85d91d4be1e1535785e551b22f38c181ed1ae9
-file|.claude/skills/spade-review/SKILL.md|.claude/skills/spade-review/SKILL.md|2892d2fc577606f80fcfd375c0ad02f94e928b54b49e570e5fd167ae1b7a4ce1
+file|.claude/skills/spade-review/SKILL.md|.claude/skills/spade-review/SKILL.md|7120db75b8a92553f2cb2cffd7ff2739849842756157cf95f1bb2936a1980884
 file|.claude/skills/spade-review/references/FRAMEWORK.md|.claude/skills/spade-review/references/FRAMEWORK.md|a082761926df3b4e04bd03311a85d91d4be1e1535785e551b22f38c181ed1ae9
 file|.claude/skills/spade-scope/SKILL.md|.claude/skills/spade-scope/SKILL.md|9c037ded9e4a7aa78efed795940f8ad37bcc1ef5c986bc9d0f09bceb0caef5de
 file|.claude/skills/spade-scope/references/FRAMEWORK.md|.claude/skills/spade-scope/references/FRAMEWORK.md|a082761926df3b4e04bd03311a85d91d4be1e1535785e551b22f38c181ed1ae9

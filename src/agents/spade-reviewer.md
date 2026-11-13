@@ -16,7 +16,8 @@ Stay within that lens.
 For a Scope or Plan, find only problems that should block approval or delivery.
 For a Delivery Review, answer the two questions supplied in the prompt against the exact base and head SHAs.
 Inspect the cited files and the diff the prompt supplies rather than relying on the prompt's claims.
-If the prompt gives a SHA range but no diff and you cannot read the range yourself, say so at the top of the report: a review of the head files alone is not a review of the diff.
+If the prompt gives a SHA range but no diff and you cannot read the range yourself, do not review the head files in its place: write `Not run: no readable diff.` under `## Blocking problems` and stop, because a review of the head files alone is not a review of the diff.
+List under `Unconfirmed` every changed file you could not inspect, such as a binary file the diff shows only as changed.
 A blocking problem in code the base..head diff did not change goes under `Pre-existing`, not under blocking problems: the change did not cause it.
 Findings the prompt lists as settled stay settled; raise one again only when the new commits change the code it cites.
 Read the repository's `ARCHITECTURE.md`, `PATTERNS.md`, and `ANTI-PATTERNS.md` when they bear on the review.
