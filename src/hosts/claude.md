@@ -7,7 +7,7 @@ It contains no workflow behavior.
 |---|---|
 | `SPADE_ASK_USER` | AskUserQuestion |
 | `SPADE_SHELL` | Bash |
-| `SPADE_ISOLATED_AGENT` | Task |
+| `SPADE_ISOLATED_AGENT` | Agent |
 | `SPADE_READ_ONLY_RESEARCH` | registered spade-researcher agent with the declared read-only tool allowlist |
 
 Claude plugin and global projections also publish every canonical agent under `agents/` or `~/.claude/agents/`.

@@ -41,7 +41,7 @@ Add a lens reviewer only when the change carries the matching risk in the table 
 Do not copy the table here or add reviewers for generic coverage.
 Run added lens reviewers in parallel when the host supports it.
 
-Dispatch each review through `Task` to the `spade-reviewer` agent.
+Dispatch each review through `Agent` to the `spade-reviewer` agent.
 When the host ships the reviewer as `references/personas/spade-reviewer.md` instead of a registered agent, put that file's instructions at the top of the prompt.
 When ANTI-PATTERNS.md has many rules, split them across reviewers so each rule gets a clean look.
 Reviewers work independently and do not receive another reviewer's findings.
@@ -55,6 +55,7 @@ Include:
 - the complete Scope and Plan material needed for the review;
 - relevant project context and repository paths;
 - the exact base and head SHAs for Delivery Review;
+- for Delivery Review, the diff itself: the output of `git diff <base>..<head>`, or for a large range the changed-file list and each file's diff, because a reviewer with read-only file tools cannot resolve a SHA range;
 - the two Delivery Review questions when that mode applies;
 - relevant constraints from `ARCHITECTURE.md`, `PATTERNS.md`, and `ANTI-PATTERNS.md`, or instructions to read those files;
 - the required output contract below.
@@ -77,7 +78,7 @@ When there are no blocking problems, the reviewer says `No blocking problems.` p
 
 ## Verify and report
 
-If a reviewer fails to run or returns nothing usable, retry it once.
+If a reviewer fails to run, returns nothing usable, or reports `Not run`, retry it once, with the diff in the prompt if that was what it lacked.
 If it still fails, list that lens as `not run` in the report; a `not run` lens never counts as a clean review and blocks an agent-recorded PASS.
 
 Check each finding against the cited material and reproduce its evidence where practical before accepting it.
