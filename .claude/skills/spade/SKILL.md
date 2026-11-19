@@ -56,7 +56,7 @@ Check the tripwires at each step.
 Absent a tripwire, keep going without asking: pick obvious defaults, note them in the PR body's list of calls you made, and move on.
 On a tripwire, record it in the Plan's Halts section (and as a comment on the Scope issue in `linear` mode), ask the human through `AskUserQuestion`, and wait.
 A guard deny is a halt too: record it, give the reason, and do not retry the write another way.
-Under Deliver, remove `.spade/guard/$CLAUDE_CODE_SESSION_ID/mode` on every exit.
+Under Deliver, remove `.spade/guard/$CLAUDE_CODE_SESSION_ID/mode` from the session repository you armed (`references/FRAMEWORK.md` § The Deliver level, step 3) on every exit.
 
 ## 6. Finish
 
