@@ -325,6 +325,8 @@ Do not remove a marker, edit the guard or the config, or reach the same file ano
 A human may disarm a guard for one run; note it in the Plan's Halts section.
 
 **Limits.** Guards are not a sandbox; they catch the ordinary tool path.
+The protected-path guard covers the project it runs in and nothing else: a path outside the project root is not classified, so a Scope delivered across two repositories can write to both, and each repository's own guard covers its own files.
+A path that leaves the project and comes back in is still classified.
 Paths are split into words at non-alphanumeric and camelCase boundaries and matched as whole words, so `access-token.ts` matches `token` and `tokenizer.ts` does not.
 `key` counts as a credential only beside a credential word such as `api`, `private`, or `ssh`.
 Well-known credential files (`id_rsa`, `authorized_keys`, `.npmrc`, `.netrc`, `kubeconfig`) are named directly.

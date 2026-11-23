@@ -11,6 +11,10 @@ Versions follow [semver](https://semver.org/) at the framework level
 
 - **PARTIAL can merge on green, when the owner opts in.** With `autonomy.deliver.merge_partial: true` in `.spade/config`, `bin/spade-guard` lets an on-green merge go ahead on a recorded PARTIAL as well as PASS, for work whose remaining criteria can only be checked after it ships, such as a live test in production. FAIL, or no verdict, still never merges, every other on-green condition and the human merge floor still apply, and PARTIAL still leaves the Scope in Evaluating. `/spade-evaluate` now writes `reviewed-head-<pr>` for a verdict the human records too, so the guard can see it. Off by default.
 
+### Changed
+
+- **Guarded modes can write outside the project.** With a `quick` or `deliver` marker set, `bin/spade-guard` denied every `Edit` or `Write` whose path fell outside the project root. That stopped a Scope whose delivery spans two repositories, and it also refused the session's own scratch directory. A path outside the project is now left alone: it is another repository's surface, and that repository's guard covers it. Paths inside the project are classified as before, including one that leaves the project and comes back in.
+
 ### Fixed
 
 - **The reviewer gets the diff, not just its SHAs.** `/spade-review` now puts the `git diff <base>..<head>` output in a Delivery Review prompt. The Claude reviewer has `Read`, `Grep` and `Glob` only, so given a bare SHA range it reviewed the head files against the author's description. The reviewer now says so at the top of its report when it is handed a range it cannot read.
