@@ -122,7 +122,14 @@ expect_deny "deliver, notebook in data/production" "$(run_guard "$(pre_tool Note
 expect_deny "deliver, traversal to .spade/config" "$(run_guard "$(pre_tool Edit "{\"file_path\":\"$project/tmp/../.spade/config\"}")")"
 expect_deny "deliver, relative traversal to .spade/config" "$(run_guard "$(pre_tool Edit "{\"file_path\":\"docs/../.spade/config\"}")")"
 expect_deny "deliver, shipped plugin guard copy" "$(run_guard "$(pre_tool Edit "{\"file_path\":\"$project/plugins/spade-framework/scripts/spade-guard\"}")")"
-expect_deny "deliver, path escaping the project" "$(run_guard "$(pre_tool Write "{\"file_path\":\"$project/../elsewhere/notes.md\"}")")"
+# A path outside the project is another repository's business, in any mode.
+expect_allow "deliver, path outside the project" "$(run_guard "$(pre_tool Write "{\"file_path\":\"$project/../elsewhere/notes.md\"}")")"
+expect_allow "deliver, absolute path outside the project" "$(run_guard "$(pre_tool Write "{\"file_path\":\"/tmp/spade-elsewhere/src/main.rs\"}")")"
+# Leaving the project and coming back in is still the project.
+expect_deny "deliver, out and back in to .spade/config" "$(run_guard "$(pre_tool Edit "{\"file_path\":\"$project/../$(basename "$project")/.spade/config\"}")")"
+set_mode quick
+expect_allow "quick, path outside the project" "$(run_guard "$(pre_tool Write "{\"file_path\":\"$project/../elsewhere/notes.md\"}")")"
+set_mode deliver
 expect_allow "deliver, dotted segments inside a safe path" "$(run_guard "$(pre_tool Edit "{\"file_path\":\"$project/docs/./guide/../README.md\"}")")"
 clear_mode
 

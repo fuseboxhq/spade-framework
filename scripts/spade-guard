@@ -270,7 +270,11 @@ guard_protected_path() {
     path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""')
     [ -n "$path" ] || return 0
     rel=$(relative_path "$path")
-    case "$rel" in ../*) deny "SPADE guard: '$path' resolves outside the project root; guarded modes only write inside the repository." ;; esac
+    # A path outside this project belongs to another repository or a scratch
+    # directory. It is not this project's protected surface, so it is not
+    # classified here, and no other guard checks it either. One Scope can be
+    # delivered across two repositories.
+    case "$rel" in ../*) return 0 ;; esac
     category=$(protected_category "$rel" "$mode")
     [ -n "$category" ] || return 0
     case "$mode" in
