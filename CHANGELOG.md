@@ -13,7 +13,7 @@ Versions follow [semver](https://semver.org/) at the framework level
 
 ### Changed
 
-- **Guarded modes can write outside the project.** With a `quick` or `deliver` marker set, `bin/spade-guard` denied every `Edit` or `Write` whose path fell outside the project root. That stopped a Scope whose delivery spans two repositories, and it also refused the session's own scratch directory. A path outside the project is now left alone: it is another repository's surface, and that repository's guard covers it. Paths inside the project are classified as before, including one that leaves the project and comes back in.
+- **Guarded modes can write outside the project.** With a `quick` or `deliver` marker set, `bin/spade-guard` denied every `Edit` or `Write` whose path fell outside the project root. That stopped a Scope whose delivery spans two repositories, and it also refused the session's own scratch directory. A path outside the project is now left alone and is not classified by any guard: a session runs only its own project's guard, so another repository's protected paths are checked only by a session running there. Paths inside the project are classified as before, including one that leaves the project and comes back in.
 
 ### Fixed
 
