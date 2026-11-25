@@ -54,6 +54,7 @@ When you record it and the work has a PR, write `.spade/guard/reviewed-head-<pr>
 
 Otherwise ask the human through `request_user_input when available, otherwise a concise direct question`: *PASS*, *PARTIAL*, or *FAIL*, with your recommendation first and a plain statement when the evidence does not support PASS.
 When the human records a verdict for a PR, write the same `reviewed-head-<pr>` line with their verdict, so a PARTIAL can merge under `on-green` when the project sets `autonomy.deliver.merge_partial: true`.
+A human's go-ahead to run the merge itself is a different marker with its own rule for when you may write it: `references/FRAMEWORK.md` § Ship and merge policy, A human go-ahead.
 
 Then:
 
