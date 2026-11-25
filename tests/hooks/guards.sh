@@ -1121,9 +1121,14 @@ pw="$tmp/pw"
 make_repo "$pw/web" human true
 make_repo "$pw/api" on-green false
 guard_at "$pw" "$(session_event SessionStart)" >/dev/null
+expect_allow "config-less parent, nothing armed, a config at the parent" "$(edit_at "$pw" "$pw/.spade/config")"
 arm "$pw/web" deliver
 expect_deny "config-less parent, armed child, its config" "$(edit_at "$pw" "$pw/web/.spade/config")"
-expect_allow "config-less parent, a config written at the parent is outside every repository" "$(edit_at "$pw" "$pw/.spade/config")"
+expect_deny_reason "config-less parent, armed child, a config at the parent" "decide which repositories the guards cover" "$(edit_at "$pw" "$pw/.spade/config")"
+expect_deny_reason "config-less parent, armed child, a list at the parent" "decide which repositories the guards cover" "$(edit_at "$pw" "$pw/.spade/guard/$session/repos")"
+expect_deny_reason "config-less parent, armed child, a list at the parent in another case" "decide which repositories the guards cover" "$(edit_at "$pw" "$pw/.SPADE/guard/$session/repos")"
+expect_allow "config-less parent, armed child, an ordinary file at the parent" "$(edit_at "$pw" "$pw/.spade/notes.md")"
+# The config appears anyway, as a human or an unarmed session would write it.
 make_repo "$pw" on-green false none
 expect_deny_reason "after a parent config appears, the armed child's config" "permission widening" "$(edit_at "$pw" "$pw/web/.spade/config")"
 expect_deny_reason "after a parent config appears, the armed child's .env" "secrets and credentials" "$(edit_at "$pw" "$pw/web/.env")"
@@ -1143,8 +1148,22 @@ disarm "$pw/web"
 expect_deny_reason "gh pr -R o/r merge under human" "merge policy is 'human'" "$(green_merge "$rs" "gh pr -R other/repo merge 41 $pin")"
 expect_deny_reason "gh pr -R o/r merge under on-green" "verified through gh pr merge only" "$(green_merge "$rs" "cd web && gh pr -R other/repo merge 41 $pin")"
 expect_deny "gh pr --repo=o/r merge under on-green" "$(green_merge "$rs" "cd web && gh pr --repo=other/repo merge 41 $pin")"
-expect_allow "gh pr view with an option is not a merge" "$(run_bash "$rs" "gh pr -R other/repo view 41")"
-expect_allow "gh pr list --search merge is not a merge" "$(run_bash "$rs" "gh pr list --search merge")"
+for option_form in "gh pr --repo=a/b -R other/repo merge 41" \
+                   "gh -R other/repo pr merge 41" \
+                   "gh --repo other/repo pr merge 41" \
+                   "gh --repo=other/repo pr merge 41" \
+                   "gh -X PUT api repos/o/r/pulls/5/merge" \
+                   "gh --method PUT api repos/o/r/pulls/5/merge"; do
+    expect_deny_reason "options before the subcommand: $option_form" "merge policy is 'human'" "$(run_bash "$rs" "$option_form")"
+done
+for not_a_merge in "gh pr -R other/repo view 41" \
+                   "gh pr list --search merge" \
+                   "gh pr --repo=other/repo list --search merge" \
+                   "gh pr -R merge view 41" \
+                   "gh pr view 41 --json mergeable" \
+                   "gh pr create --title merge"; do
+    expect_allow "not a merge: $not_a_merge" "$(run_bash "$rs" "$not_a_merge")"
+done
 
 # The other-case spelling keeps the rest of the path as written, so the
 # camelCase word split still sees accessToken.

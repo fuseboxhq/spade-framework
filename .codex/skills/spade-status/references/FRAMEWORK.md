@@ -325,6 +325,7 @@ Later `SessionStart` events (compact, resume, clear) leave an existing list alon
 The exception is a session whose first `SessionStart` found nothing to record: no list exists, so a later one records what it finds then, including a repository created since. The guard enforces that repository's own config, where before this session would have had no guards at all.
 A session that ended and starts again under the same id records afresh, because `SessionEnd` removed its list.
 A session that began without a config at its folder stays that way: a `.spade/config` that appears there later does not replace the children's list with the folder alone.
+While any session repository is armed, the session folder's own `.spade/config` and `.spade/guard/<session_id>/repos` are protected paths too, whether or not the folder is a session repository.
 Copies of the list that disagree deny merges and armed edits.
 
 **Which repository a call targets.** The session repository for a path is the deepest recorded repository that contains it. For an edit, paths are compared lexically, without following symlinks.

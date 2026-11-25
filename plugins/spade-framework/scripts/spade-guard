@@ -484,6 +484,15 @@ $folded_repos
 EOF2
     folded_rel="${abs:$own_folded_len}"
     folded_rel="${folded_rel#/}"
+    # The session folder's own config and recorded list decide which
+    # repositories the guards cover, whether or not the folder is itself a
+    # recorded repository. A session that began without a config there would
+    # otherwise let an armed child plant both and unrecord itself.
+    folded_project=$(printf '%s' "$project_dir" | tr '[:upper:]' '[:lower:]')
+    case "$folded_abs" in
+        "$folded_project"/.spade/config|"$folded_project"/.spade/guard/*/repos)
+            deny "SPADE guard: '$abs' is a protected path (permission widening): the session folder's config and recorded list decide which repositories the guards cover, so an armed session does not write them. Halt and surface this to the human (tripwire #6)." ;;
+    esac
     while IFS="$tab" read -r mode armed_repo; do
         [ -n "$armed_repo" ] || continue
         rel=$(relative_path "$abs" "$armed_repo")
@@ -664,17 +673,27 @@ guard_awk_lib='
             if (w(k) == "-A" || w(k) == "--all" || w(k) == "." || w(k) == "--no-ignore-removal") return 1
         return 0
     }
+    function gh_word(i,   k, t) {
+        # The field of the first word after the options that follow field i.
+        # As gh reads them: an option without = takes the next word as its
+        # value, except a bundled short option and --help or --version.
+        for (k = i + 1; k <= NF && substr(w(k), 1, 1) == "-"; k++) {
+            t = w(k)
+            if (index(t, "=") || t == "--help" || t == "-h" || t == "--version") continue
+            if (substr(t, 1, 2) == "--" || length(t) == 2) k++
+        }
+        return k
+    }
     function merge_at(i,   k) {
-        if (w(i) == "gh" && w(i + 1) == "pr" && w(i + 2) == "merge") return 1
-        # gh accepts its options before the subcommand: gh pr -R o/r merge 5.
-        # Each option may take one value.
-        if (w(i) == "gh" && w(i + 1) == "pr")
-            for (k = i + 2; k <= NF && substr(w(k), 1, 1) == "-"; k += 2) {
-                if (w(k + 1) == "merge" || w(k + 2) == "merge") return 1
-            }
+        # gh takes options before each subcommand: gh -R o/r pr merge 5,
+        # gh pr --repo o/r merge 5, gh -X PUT api .../merge.
+        if (w(i) == "gh") {
+            k = gh_word(i)
+            if (w(k) == "pr" && w(gh_word(k)) == "merge") return 1
+            if (w(k) == "api")
+                for (k = k + 1; k <= NF; k++) if (w(k) ~ /\/merge$/ || w(k) ~ /\/pulls\/[0-9]+\/merge/) return 1
+        }
         if (w(i) == "glab" && w(i + 1) == "mr" && w(i + 2) == "merge") return 1
-        if (w(i) == "gh" && w(i + 1) == "api")
-            for (k = i + 2; k <= NF; k++) if (w(k) ~ /\/merge$/ || w(k) ~ /\/pulls\/[0-9]+\/merge/) return 1
         return 0
     }
 '
@@ -829,7 +848,7 @@ target_dirs() {
             else if (NF == 4 && ($3 == "-L" || $3 == "--")) p = $4
             else return "a cd with options or arguments other than [-L|--] <path>"
             if (after != "and") return "a cd that is not joined to the next command by &&"
-            if (substr(p, 1, 1) == "-" || !literal(p)) return "a cd to a path the guard cannot read literally: it holds a $, a glob character such as [ or *, a backslash, or a substitution"
+            if (substr(p, 1, 1) == "-" || !literal(p)) return "a cd to a path the guard cannot read literally: only a plain path counts, with no $, glob character such as [ or *, #, backslash, substitution, ~user, or leading -"
             if (cdpath != "" && substr(p, 1, 1) != "/" && substr(p, 1, 1) != "~")
                 return "a relative cd while CDPATH is set"
             dir = resolve(dir, p)
