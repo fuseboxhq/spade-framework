@@ -1128,6 +1128,9 @@ expect_deny_reason "config-less parent, armed child, a config at the parent" "de
 expect_deny_reason "config-less parent, armed child, a list at the parent" "decide which repositories the guards cover" "$(edit_at "$pw" "$pw/.spade/guard/$session/repos")"
 expect_deny_reason "config-less parent, armed child, a list at the parent in another case" "decide which repositories the guards cover" "$(edit_at "$pw" "$pw/.SPADE/guard/$session/repos")"
 expect_allow "config-less parent, armed child, an ordinary file at the parent" "$(edit_at "$pw" "$pw/.spade/notes.md")"
+# An armed session cannot disarm itself with a file tool and plant them then.
+expect_deny_reason "armed child, its own mode marker" "permission widening" "$(edit_at "$pw" "$pw/web/.spade/guard/$session/mode")"
+expect_deny_reason "armed child, a sibling's mode marker" "permission widening" "$(edit_at "$pw" "$pw/api/.spade/guard/$session/mode")"
 # The config appears anyway, as a human or an unarmed session would write it.
 make_repo "$pw" on-green false none
 expect_deny_reason "after a parent config appears, the armed child's config" "permission widening" "$(edit_at "$pw" "$pw/web/.spade/config")"
@@ -1153,7 +1156,10 @@ for option_form in "gh pr --repo=a/b -R other/repo merge 41" \
                    "gh --repo other/repo pr merge 41" \
                    "gh --repo=other/repo pr merge 41" \
                    "gh -X PUT api repos/o/r/pulls/5/merge" \
-                   "gh --method PUT api repos/o/r/pulls/5/merge"; do
+                   "gh --method PUT api repos/o/r/pulls/5/merge" \
+                   "gh '' pr merge 41" \
+                   "gh pr '' merge 41" \
+                   "gh '' api -X PUT repos/o/r/pulls/5/merge"; do
     expect_deny_reason "options before the subcommand: $option_form" "merge policy is 'human'" "$(run_bash "$rs" "$option_form")"
 done
 for not_a_merge in "gh pr -R other/repo view 41" \

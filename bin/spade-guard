@@ -345,7 +345,7 @@ protected_category() {
         echo "production data"; return
     fi
     case "$lower" in
-        .spade/config|.spade/guard/*/repos|*/.spade/guard/*/repos|.claude/settings.json|.claude/settings.local.json|hooks/hooks.json|src/hooks/hooks.json|bin/spade-guard|scripts/spade-guard|plugins/spade-framework/scripts/spade-guard|*/.claude/settings.json|*/.claude/settings.local.json|*/hooks/hooks.json|*/bin/spade-guard|*/scripts/spade-guard)
+        .spade/config|.spade/guard/*/repos|*/.spade/guard/*/repos|.spade/guard/*/mode|*/.spade/guard/*/mode|.claude/settings.json|.claude/settings.local.json|hooks/hooks.json|src/hooks/hooks.json|bin/spade-guard|scripts/spade-guard|plugins/spade-framework/scripts/spade-guard|*/.claude/settings.json|*/.claude/settings.local.json|*/hooks/hooks.json|*/bin/spade-guard|*/scripts/spade-guard)
             echo "permission widening"; return ;;
     esac
 
@@ -677,9 +677,10 @@ guard_awk_lib='
         # The field of the first word after the options that follow field i.
         # As gh reads them: an option without = takes the next word as its
         # value, except a bundled short option and --help or --version.
-        for (k = i + 1; k <= NF && substr(w(k), 1, 1) == "-"; k++) {
+        # An empty word ('') is skipped too: gh ignores it.
+        for (k = i + 1; k <= NF && (w(k) == "" || substr(w(k), 1, 1) == "-"); k++) {
             t = w(k)
-            if (index(t, "=") || t == "--help" || t == "-h" || t == "--version") continue
+            if (t == "" || index(t, "=") || t == "--help" || t == "-h" || t == "--version") continue
             if (substr(t, 1, 2) == "--" || length(t) == 2) k++
         }
         return k
