@@ -323,6 +323,8 @@ Without one, a copy of each goes in every recorded child, and nothing is written
 A folder with neither stays inert.
 Later `SessionStart` events (compact, resume, clear) leave an existing list alone, so a repository created or cloned mid-session, or a config an agent writes, never joins it; it counts from the next session.
 The exception is a session whose first `SessionStart` found nothing to record: no list exists, so a later one records what it finds then, including a repository created since. The guard enforces that repository's own config, where before this session would have had no guards at all.
+A session that ended and starts again under the same id records afresh, because `SessionEnd` removed its list.
+A session that began without a config at its folder stays that way: a `.spade/config` that appears there later does not replace the children's list with the folder alone.
 Copies of the list that disagree deny merges and armed edits.
 
 **Which repository a call targets.** The session repository for a path is the deepest recorded repository that contains it. For an edit, paths are compared lexically, without following symlinks.
@@ -359,6 +361,7 @@ grep -qxF "$d" "$l/.spade/guard/$CLAUDE_CODE_SESSION_ID/repos" 2>/dev/null
 ```
 
 A worktree or clone added mid-session has its own `.git` and is not listed, so guards are not live there until the next session, even inside a listed repository such as `.claude/worktrees/<name>`; the guard still judges its edits as part of the repository around it.
+The check compares paths as written, so from a folder reached through a symbolic link it can answer "not live" while the guard is judging calls there; that errs towards the strict model.
 Only when guards are live do the lighter rules apply: the narrowed tripwire 6, the agent-recorded Evaluate verdict, and merge under `on-green`.
 Otherwise (Codex, a Claude session without the hooks, a repository without `.spade/config`, or one added mid-session), any security category halts before code and the human merges.
 
@@ -374,6 +377,7 @@ A path that leaves a session repository and comes back in is still classified.
 The working directory is read, not proven.
 The guard does not model every way a shell can end up somewhere else, such as bash falling back to a physical path when a `cd` names a folder that is missing.
 A merge does not depend on it: the command must pin the head SHA that the guard read from the repository it resolved, so a merge that really runs against a different repository names a head that PR does not have, and the host refuses it.
+That argument stops at two recorded checkouts of the same host repository, such as a clone and its worktree: both answer for the same PR and head, so the more permissive checkout's policy can merge it. Keep their merge policies the same.
 A stage-all judged in the wrong repository is a hygiene miss, not a safety one.
 Paths are split into words at non-alphanumeric and camelCase boundaries and matched as whole words, so `access-token.ts` matches `token` and `tokenizer.ts` does not.
 `key` counts as a credential only beside a credential word such as `api`, `private`, or `ssh`.

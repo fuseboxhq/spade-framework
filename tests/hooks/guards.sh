@@ -1111,6 +1111,64 @@ unset GH_HOST; gh pr merge 41 $pin" \
     expect_deny_reason "single repository, $set_form" "drop -R, --repo, GH_REPO, or a PR URL" "$(green_merge "$project" "$set_form")"
 done
 
+# Delivery Review findings on PR #20 (PS-3305).
+echo "delivery review findings, PR 20"
+
+# A config written at a session folder that began without one must not
+# unrecord the children: before the fix, the list became the folder alone and
+# every child's mode marker, stage-all rule, and merge policy stopped counting.
+pw="$tmp/pw"
+make_repo "$pw/web" human true
+make_repo "$pw/api" on-green false
+guard_at "$pw" "$(session_event SessionStart)" >/dev/null
+arm "$pw/web" deliver
+expect_deny "config-less parent, armed child, its config" "$(edit_at "$pw" "$pw/web/.spade/config")"
+expect_allow "config-less parent, a config written at the parent is outside every repository" "$(edit_at "$pw" "$pw/.spade/config")"
+make_repo "$pw" on-green false none
+expect_deny_reason "after a parent config appears, the armed child's config" "permission widening" "$(edit_at "$pw" "$pw/web/.spade/config")"
+expect_deny_reason "after a parent config appears, the armed child's .env" "secrets and credentials" "$(edit_at "$pw" "$pw/web/.env")"
+expect_deny_reason "after a parent config appears, a sibling's config" "permission widening" "$(edit_at "$pw" "$pw/api/.spade/config")"
+expect_deny_reason "after a parent config appears, a child's copy of the list" "permission widening" "$(edit_at "$pw" "$pw/web/.spade/guard/$session/repos")"
+expect_deny_reason "after a parent config appears, stage-all in the child that denies it" "(read $pw/web/.spade/config)" "$(run_bash "$pw" "cd web && git add -A")"
+expect_deny_reason "after a parent config appears, the child's human policy still decides" "merge policy is 'human'" "$(green_merge "$pw" "cd web && gh pr merge 41 $pin")"
+mkdir -p "$pw/.spade/guard"
+printf 'abc123 PASS\n' > "$pw/.spade/guard/reviewed-head-41"
+expect_deny_reason "after a parent config appears, a merge in the parent has no policy" "outside every repository recorded for this session" "$(green_merge "$pw" "gh pr merge 41 $pin")"
+make_repo "$pw/late" on-green false
+guard_at "$pw" "$(session_event SessionStart compact)" >/dev/null
+check "after a parent config appears, a compact records nothing new" absent "$pw/.spade/guard/$session/repos" "$pw/late/.spade/guard/$session/repos"
+disarm "$pw/web"
+
+# gh takes its options before the subcommand, and that is still a merge.
+expect_deny_reason "gh pr -R o/r merge under human" "merge policy is 'human'" "$(green_merge "$rs" "gh pr -R other/repo merge 41 $pin")"
+expect_deny_reason "gh pr -R o/r merge under on-green" "verified through gh pr merge only" "$(green_merge "$rs" "cd web && gh pr -R other/repo merge 41 $pin")"
+expect_deny "gh pr --repo=o/r merge under on-green" "$(green_merge "$rs" "cd web && gh pr --repo=other/repo merge 41 $pin")"
+expect_allow "gh pr view with an option is not a merge" "$(run_bash "$rs" "gh pr -R other/repo view 41")"
+expect_allow "gh pr list --search merge is not a merge" "$(run_bash "$rs" "gh pr list --search merge")"
+
+# The other-case spelling keeps the rest of the path as written, so the
+# camelCase word split still sees accessToken.
+arm "$rs" quick
+expect_deny_reason "armed quick, a camelCase credential name under another case of the repository" "secrets and credentials" "$(edit_at "$rs" "$(printf '%s' "$rs" | tr '[:lower:]' '[:upper:]')/src/accessToken.ts")"
+expect_allow "armed quick, an ordinary file under another case of the repository" "$(edit_at "$rs" "$(printf '%s' "$rs" | tr '[:lower:]' '[:upper:]')/src/app.ts")"
+disarm "$rs"
+
+# A deny for a file in another repository names the file in full.
+arm "$rs/web" deliver
+expect_deny_reason "a sibling's config is named with its repository" "'$rs/api/.spade/config' is a protected path" "$(edit_at "$rs" "$rs/api/.spade/config")"
+disarm "$rs/web"
+
+# A session id is a folder name, never a path.
+mkdir -p "$tmp/sid/keep" "$tmp/sid/repo/.spade/guard"
+make_repo "$tmp/sid/repo" human false none
+printf '%s' "$(jq -cn '{hook_event_name: "SessionEnd", session_id: "../../../keep"}')" | CLAUDE_PROJECT_DIR="$tmp/sid/repo" PATH="$stubs:$PATH" "$GUARD" >/dev/null
+check "SessionEnd with a path as session id removes nothing outside .spade/guard" test -d "$tmp/sid/keep"
+
+# With nothing recorded, the merge deny says so.
+nr="$tmp/nr"
+make_repo "$nr/a" on-green false
+expect_deny_reason "no SessionStart seen, merge in a child" "no repositories were recorded for this session" "$(green_merge "$nr" "cd a && gh pr merge 41 $pin")"
+
 # SessionEnd removes the session's markers wherever they were written.
 guard_at "$pn" "$(session_event SessionEnd)" >/dev/null
 check "parent without a config, SessionEnd removes every child's markers" absent "$pn/a/.spade/guard/$session" "$pn/b/.spade/guard/$session"

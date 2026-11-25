@@ -88,9 +88,26 @@ fi
 event=$(printf '%s' "$input" | jq -r '.hook_event_name // ""')
 tool=$(printf '%s' "$input" | jq -r '.tool_name // ""')
 session=$(printf '%s' "$input" | jq -r '.session_id // ""')
+# The id becomes a folder name, and SessionEnd removes that folder.
+case "$session" in *[!A-Za-z0-9_-]*) session="" ;; esac
 sid="${session:-unknown}"
 guard_dir="$project_dir/.spade/guard"
 session_dir="$guard_dir/$sid"
+
+# A session that began without a config at its folder keeps its list in the
+# children. A config that appears at the folder later, such as one an agent
+# writes, must not replace that list with the folder alone, so the session
+# stays what it was recorded as.
+if [ "$root_config" = yes ] && [ ! -f "$session_dir/repos" ]; then
+    children=$(child_repos)
+    while IFS= read -r child; do
+        [ -n "$child" ] && [ -f "$child/.spade/guard/$sid/repos" ] || continue
+        root_config=no
+        break
+    done <<EOF
+$children
+EOF
+fi
 
 deny_suffix=""
 deny() {
@@ -147,12 +164,12 @@ load_repos() {
     raw=""
     if [ "$root_config" = yes ]; then
         raw="$project_dir"
-        [ -f "$session_dir/repos" ] && raw="$raw$nl$(cat "$session_dir/repos")"
+        [ -f "$session_dir/repos" ] && raw="$raw$nl$(<"$session_dir/repos")"
     else
         seen=no
         while IFS= read -r child; do
             [ -n "$child" ] && [ -f "$child/.spade/guard/$sid/repos" ] || continue
-            copy=$(cat "$child/.spade/guard/$sid/repos")
+            copy=$(<"$child/.spade/guard/$sid/repos")
             if [ "$seen" = no ]; then
                 raw="$copy"; first="$copy"; seen=yes
             elif [ "$copy" != "$first" ]; then
@@ -164,7 +181,8 @@ EOF
     fi
     while IFS= read -r entry; do
         case "$entry" in /*) ;; *) continue ;; esac
-        [ "$(normalize_abs "$entry")" = "$entry" ] || continue
+        # Only a normalized path counts: no empty, `.` or `..` segment.
+        case "$entry" in *//*|*/./*|*/../*|*/.|*/..|*/) continue ;; esac
         case "$entry" in "$project_dir"|"$project_dir"/*) ;; *) continue ;; esac
         [ -f "$entry/.spade/config" ] || continue
         case "$nl$repos$nl" in *"$nl$entry$nl"*) continue ;; esac
@@ -407,16 +425,17 @@ protected_category() {
 }
 
 classify_edit() {
-    # Arguments: repository, path relative to it, mode. Denies when the path
-    # is protected in that mode, with the framework layout detected in that
-    # repository.
+    # Arguments: repository, path relative to it, mode, optional name for the
+    # deny (default the relative path). Denies when the path is protected in
+    # that mode, with the framework layout detected in that repository.
     class_root="$1"
     category=$(protected_category "$2" "$3")
     class_root=""
     [ -n "$category" ] || return 0
+    shown="${4:-$2}"
     case "$3" in
-        deliver) deny "SPADE guard: '$2' is a protected path ($category). Deliver never edits secrets, production data, or its own permissions unattended. Halt and surface this to the human (tripwire #6)." ;;
-        *) deny "SPADE guard: '$2' is a protected path ($category) and /spade-$3 may not touch it. This is not $3-eligible; use the full SPADE loop." ;;
+        deliver) deny "SPADE guard: '$shown' is a protected path ($category). Deliver never edits secrets, production data, or its own permissions unattended. Halt and surface this to the human (tripwire #6)." ;;
+        *) deny "SPADE guard: '$shown' is a protected path ($category) and /spade-$3 may not touch it. This is not $3-eligible; use the full SPADE loop." ;;
     esac
 }
 
@@ -431,42 +450,55 @@ guard_protected_path() {
     # A path outside every recorded repository is another project's or a
     # scratch directory's business. It is not classified, and no other guard
     # checks it either.
+    armed=""
+    while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        mode=$(repo_mode "$candidate")
+        [ -n "$mode" ] && armed="${armed:+$armed$nl}$mode$tab$candidate"
+    done <<EOF
+$repos
+EOF
+    [ -n "$armed" ] || return 0
     path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""')
     [ -n "$path" ] || return 0
     case "$path" in /*) abs="$path" ;; *) abs="$project_dir/$path" ;; esac
     abs=$(normalize_abs "$abs")
     own=$(repo_for "$abs")
     # On a case-insensitive filesystem WEB/x is web/x, so the recorded
-    # repository that holds the path without regard to case is classified too.
+    # repository that holds the path without regard to case is classified
+    # too. Only the repository part is folded: the rest keeps its case,
+    # which the camelCase word split needs.
     folded_abs=$(printf '%s' "$abs" | tr '[:upper:]' '[:lower:]')
-    own_folded=""; own_folded_key=""
-    while IFS= read -r candidate; do
+    folded_repos=$(printf '%s' "$repos" | tr '[:upper:]' '[:lower:]')
+    own_folded=""; own_folded_len=0
+    while IFS= read -r candidate <&3 && IFS= read -r candidate_key <&4; do
         [ -n "$candidate" ] || continue
-        candidate_key=$(printf '%s' "$candidate" | tr '[:upper:]' '[:lower:]')
         case "$folded_abs" in
             "$candidate_key"|"$candidate_key"/*)
-                [ "${#candidate_key}" -gt "${#own_folded_key}" ] && { own_folded="$candidate"; own_folded_key="$candidate_key"; } ;;
+                [ "${#candidate_key}" -gt "$own_folded_len" ] && { own_folded="$candidate"; own_folded_len=${#candidate_key}; } ;;
         esac
-    done <<EOF
+    done 3<<EOF 4<<EOF2
 $repos
 EOF
-    while IFS= read -r armed_repo; do
+$folded_repos
+EOF2
+    folded_rel="${abs:$own_folded_len}"
+    folded_rel="${folded_rel#/}"
+    while IFS="$tab" read -r mode armed_repo; do
         [ -n "$armed_repo" ] || continue
-        mode=$(repo_mode "$armed_repo")
-        [ -n "$mode" ] || continue
         rel=$(relative_path "$abs" "$armed_repo")
         case "$rel" in
             ../*) ;;
             *) classify_edit "$armed_repo" "$rel" "$mode" ;;
         esac
         if [ -n "$own" ] && [ "$own" != "$armed_repo" ]; then
-            classify_edit "$own" "$(relative_path "$abs" "$own")" "$mode"
+            classify_edit "$own" "$(relative_path "$abs" "$own")" "$mode" "$abs"
         fi
         if [ -n "$own_folded" ] && [ "$own_folded" != "$own" ]; then
-            classify_edit "$own_folded" "$(relative_path "$folded_abs" "$own_folded_key")" "$mode"
+            classify_edit "$own_folded" "${folded_rel:-.}" "$mode" "$abs"
         fi
     done <<EOF
-$repos
+$armed
 EOF
     return 0
 }
@@ -634,6 +666,12 @@ guard_awk_lib='
     }
     function merge_at(i,   k) {
         if (w(i) == "gh" && w(i + 1) == "pr" && w(i + 2) == "merge") return 1
+        # gh accepts its options before the subcommand: gh pr -R o/r merge 5.
+        # Each option may take one value.
+        if (w(i) == "gh" && w(i + 1) == "pr")
+            for (k = i + 2; k <= NF && substr(w(k), 1, 1) == "-"; k += 2) {
+                if (w(k + 1) == "merge" || w(k + 2) == "merge") return 1
+            }
         if (w(i) == "glab" && w(i + 1) == "mr" && w(i + 2) == "merge") return 1
         if (w(i) == "gh" && w(i + 1) == "api")
             for (k = i + 2; k <= NF; k++) if (w(k) ~ /\/merge$/ || w(k) ~ /\/pulls\/[0-9]+\/merge/) return 1
@@ -791,7 +829,7 @@ target_dirs() {
             else if (NF == 4 && ($3 == "-L" || $3 == "--")) p = $4
             else return "a cd with options or arguments other than [-L|--] <path>"
             if (after != "and") return "a cd that is not joined to the next command by &&"
-            if (substr(p, 1, 1) == "-" || !literal(p)) return "a cd to a path the guard cannot read literally"
+            if (substr(p, 1, 1) == "-" || !literal(p)) return "a cd to a path the guard cannot read literally: it holds a $, a glob character such as [ or *, a backslash, or a substitution"
             if (cdpath != "" && substr(p, 1, 1) != "/" && substr(p, 1, 1) != "~")
                 return "a relative cd while CDPATH is set"
             dir = resolve(dir, p)
@@ -1051,6 +1089,9 @@ guard_merge() {
             if [ -z "$repo" ]; then
                 # Outside every recorded repository: the session folder's
                 # config still governs, as it did before, when there is one.
+                if [ "$root_config" != yes ] && [ -z "$repos" ]; then
+                    deny "SPADE guard: no repositories were recorded for this session, because the guard was added after it started, so no merge policy covers this merge. A human merges it; a new session, or a compact or resume of this one, records them."
+                fi
                 [ "$root_config" = yes ] \
                     || deny "SPADE guard: this merge runs in $target, outside every repository recorded for this session (.spade/guard/$sid/repos), so no merge policy covers it. A human merges it, or the merge runs from a recorded repository."
                 repo="$project_dir"
