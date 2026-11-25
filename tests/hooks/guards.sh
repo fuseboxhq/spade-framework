@@ -6,7 +6,9 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GUARD="$REPO_ROOT/bin/spade-guard"
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/spade-guard-test.XXXXXX")
+# The physical path, so expectations match what the guard resolves: on macOS
+# TMPDIR ends in a slash and sits behind the /var symlink.
+tmp=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/spade-guard-test.XXXXXX")" && pwd -P)
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 project="$tmp/project"
 stubs="$tmp/stubs"
@@ -93,6 +95,7 @@ expect_allow "no .spade/config" "$out"
 # Session lifecycle.
 run_guard "$(jq -cn --arg s "$session" '{hook_event_name:"SessionStart", session_id:$s}')" >/dev/null
 [ -f "$project/.spade/guard/$session/live" ] && echo "  ok:   SessionStart writes live marker" || { echo "  FAIL: live marker missing"; fail=$((fail + 1)); }
+[ "$(cat "$project/.spade/guard/$session/repos" 2>/dev/null)" = "$project" ] && echo "  ok:   single repository, SessionStart records only the project" || { echo "  FAIL: single-repository list is not just the project"; fail=$((fail + 1)); }
 
 # Closing an issue is the agent's own call once Evaluate records PASS, so
 # no guard stands between it and any tracker state.
@@ -384,6 +387,735 @@ fi
 # SessionEnd cleans up.
 run_guard "$(jq -cn --arg s "$session" '{hook_event_name:"SessionEnd", session_id:$s}')" >/dev/null
 [ ! -d "$project/.spade/guard/$session" ] && echo "  ok:   SessionEnd removes session dir" || { echo "  FAIL: session dir survived SessionEnd"; fail=$((fail + 1)); }
+
+# Session repositories (PS-3305). The guard records the session's repositories
+# at the first SessionStart and judges each call by the one it targets.
+echo "session repositories"
+nl='
+'
+
+expect_deny_reason() {
+    # Arguments: label, text the reason must contain, output. Passes when the
+    # output is a deny decision whose reason contains the text.
+    if printf '%s' "$3" | jq -e --arg want "$2" '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains($want))' >/dev/null 2>&1; then
+        echo "  ok:   deny  $1"
+    else
+        echo "  FAIL: expected deny for $1 with a reason containing '$2', got: ${3:-<empty>}"
+        fail=$((fail + 1))
+    fi
+}
+
+check() {
+    # Arguments: label, then a command. Passes when the command succeeds.
+    label="$1"; shift
+    if "$@"; then echo "  ok:   $label"; else echo "  FAIL: $label"; fail=$((fail + 1)); fi
+}
+
+absent() {
+    # Arguments: paths. Succeeds when none of them exists.
+    for p in "$@"; do [ ! -e "$p" ] || return 1; done
+}
+
+same_text() {
+    # Arguments: file, expected text. Succeeds when the file holds exactly that text.
+    [ -f "$1" ] && [ "$(cat "$1")" = "$2" ]
+}
+
+make_repo() {
+    # Arguments: folder, merge policy (or none), deny_stage_all, optional .git
+    # kind: dir (default), file (a worktree), or none (a fixture). Writes a
+    # repository with a minimal .spade/config.
+    mkdir -p "$1/.spade"
+    case "${4:-dir}" in
+        dir) mkdir -p "$1/.git" ;;
+        file) printf 'gitdir: /elsewhere/.git/worktrees/x\n' > "$1/.git" ;;
+    esac
+    {
+        printf 'mode: local\nautonomy:\n  deliver:\n'
+        [ "$2" = none ] || printf '    merge: %s\n' "$2"
+        printf 'guards:\n  deny_stage_all: %s\n' "$3"
+    } > "$1/.spade/config"
+}
+
+guard_at() {
+    # Arguments: session folder, event JSON. Prints the helper's stdout with
+    # that folder as the session folder.
+    printf '%s' "$2" | CLAUDE_PROJECT_DIR="$1" PATH="$stubs:$PATH" "$GUARD"
+}
+
+session_event() {
+    # Arguments: event name, optional SessionStart source. Prints the event.
+    jq -cn --arg e "$1" --arg s "$session" --arg src "${2:-startup}" '{hook_event_name:$e, session_id:$s, source:$src}'
+}
+
+arm() {
+    # Arguments: repository, mode. Writes that repository's mode marker.
+    mkdir -p "$1/.spade/guard/$session"
+    printf '%s\n' "$2" > "$1/.spade/guard/$session/mode"
+}
+
+# A parent with its own config: the list lives in the parent and names the
+# child and grandchild repositories, never a fixture without .git or a hidden folder.
+pc="$tmp/pc"
+make_repo "$pc" human false none
+make_repo "$pc/web" on-green false
+make_repo "$pc/libs/core" human false file
+make_repo "$pc/fixture" on-green false none
+make_repo "$pc/.hidden" on-green false
+guard_at "$pc" "$(session_event SessionStart)" >/dev/null
+check "parent with a config, live in the parent" test -f "$pc/.spade/guard/$session/live"
+check "parent with a config, list names parent, child, and worktree grandchild" same_text "$pc/.spade/guard/$session/repos" "$pc$nl$pc/web$nl$pc/libs/core"
+check "parent with a config, nothing written in the children" absent "$pc/web/.spade/guard" "$pc/libs/core/.spade/guard" "$pc/fixture/.spade/guard" "$pc/.hidden/.spade/guard"
+
+# A parent without a config: the markers go only in the children.
+pn="$tmp/pn"
+make_repo "$pn/a" on-green false
+make_repo "$pn/b" human true
+make_repo "$pn/c" on-green false none
+guard_at "$pn" "$(session_event SessionStart)" >/dev/null
+check "parent without a config, live and list in each child" test -f "$pn/a/.spade/guard/$session/live" -a -f "$pn/b/.spade/guard/$session/live"
+check "parent without a config, both copies name both children" same_text "$pn/a/.spade/guard/$session/repos" "$pn/a$nl$pn/b"
+check "parent without a config, second copy matches" same_text "$pn/b/.spade/guard/$session/repos" "$pn/a$nl$pn/b"
+check "parent without a config, nothing written in the parent or a fixture" absent "$pn/.spade" "$pn/c/.spade/guard"
+
+# A session at ~ never writes into the ~/.spade install clone.
+home="$tmp/home"
+make_repo "$home/.spade" on-green false
+make_repo "$home/work" human false
+guard_at "$home" "$(session_event SessionStart)" >/dev/null
+check "home session, list in the child repository" test -f "$home/work/.spade/guard/$session/repos"
+check "home session, nothing written in ~/.spade" absent "$home/.spade/guard" "$home/.spade/.spade/guard"
+home_only="$tmp/home-only"
+make_repo "$home_only/.spade" on-green false
+guard_at "$home_only" "$(session_event SessionStart)" >/dev/null
+check "home with only ~/.spade, nothing written" absent "$home_only/.spade/guard" "$home_only/.spade/.spade/guard"
+
+# A folder with nothing nearby stays inert and writes nothing.
+nothing="$tmp/nothing"
+make_repo "$nothing/notes" on-green true none
+mkdir -p "$nothing/a/b/c"
+make_repo "$nothing/a/b/c" on-green true
+guard_at "$nothing" "$(session_event SessionStart)" >/dev/null
+check "nothing nearby, nothing written" absent "$nothing/.spade" "$nothing/notes/.spade/guard" "$nothing/a/b/c/.spade/guard"
+expect_allow "nothing nearby, git add -A" "$(guard_at "$nothing" "$(pre_tool Bash '{"command":"git add -A"}')")"
+
+# A later SessionStart (compact, resume, clear) never grows the list, so a
+# repository created mid-session does not join it.
+make_repo "$pn/d" on-green false
+guard_at "$pn" "$(session_event SessionStart compact)" >/dev/null
+check "compact after git init, the new repository gets no markers" absent "$pn/d/.spade/guard"
+check "compact after git init, the list does not grow" same_text "$pn/a/.spade/guard/$session/repos" "$pn/a$nl$pn/b"
+make_repo "$pc/late" on-green false
+guard_at "$pc" "$(session_event SessionStart resume)" >/dev/null
+check "resume after git init under a parent with a config, the list does not grow" same_text "$pc/.spade/guard/$session/repos" "$pc$nl$pc/web$nl$pc/libs/core"
+
+# Copies of the list that disagree are treated as tampered.
+cp "$pn/b/.spade/guard/$session/repos" "$tmp/pn-b-repos"
+printf '%s\n' "$pn/d" >> "$pn/b/.spade/guard/$session/repos"
+expect_deny_reason "copies disagree, merge" "disagree" "$(guard_at "$pn" "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123"}')")"
+expect_allow "copies disagree, unarmed edit" "$(guard_at "$pn" "$(pre_tool Edit "{\"file_path\":\"$pn/a/README.md\"}")")"
+arm "$pn/a" deliver
+expect_deny_reason "copies disagree, armed edit" "disagree" "$(guard_at "$pn" "$(pre_tool Edit "{\"file_path\":\"$pn/a/README.md\"}")")"
+cp "$tmp/pn-b-repos" "$pn/b/.spade/guard/$session/repos"
+rm -f "$pn/a/.spade/guard/$session/mode"
+expect_allow "copies agree, unarmed edit" "$(guard_at "$pn" "$(pre_tool Edit "{\"file_path\":\"$pn/a/README.md\"}")")"
+
+# Without jq, a session folder with no config stays inert rather than blocking.
+nojq_out=$(printf '%s' "$(pre_tool Bash '{"command":"git add -A"}')" | CLAUDE_PROJECT_DIR="$pn" PATH="$tmp/nojq" bash "$GUARD" 2>&1) \
+    && [ -z "$nojq_out" ] && echo "  ok:   parent without a config, missing jq is inert" \
+    || { echo "  FAIL: parent without a config, missing jq should be inert, got: $nojq_out"; fail=$((fail + 1)); }
+
+# Working directory. A second gh stub records the folder each gh call ran in,
+# then hands over to the stub above.
+pwd_stubs="$tmp/pwd-stubs"
+gh_log="$tmp/gh-pwd.log"
+mkdir -p "$pwd_stubs"
+cat > "$pwd_stubs/gh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$PWD" >> "$gh_log"
+exec "$stubs/gh" "\$@"
+EOF
+chmod +x "$pwd_stubs/gh"
+
+bash_event() {
+    # Arguments: command, optional hook cwd. Prints a Bash PreToolUse event.
+    jq -cn --arg c "$1" --arg cwd "${2:-}" --arg s "$session" \
+        '{hook_event_name:"PreToolUse", session_id:$s, tool_name:"Bash", tool_input:{command:$c}} + (if $cwd == "" then {} else {cwd:$cwd} end)'
+}
+
+run_bash() {
+    # Arguments: session folder, command, optional hook cwd. Prints the
+    # guard's decision, with gh calls recorded in gh_log.
+    : > "$gh_log"
+    bash_event "$2" "${3:-}" | CLAUDE_PROJECT_DIR="$1" HOME="${STUB_HOME:-$HOME}" PATH="$pwd_stubs:$stubs:$PATH" "$GUARD"
+}
+
+gh_ran_in() {
+    # Arguments: session folder, command, optional hook cwd. Prints the
+    # folder the first gh call ran in, or "gh never ran: <decision>".
+    decision=$(run_bash "$@")
+    if [ -s "$gh_log" ]; then head -n 1 "$gh_log"; else printf 'gh never ran: %s' "${decision:-allow}"; fi
+}
+
+expect_ran_in() {
+    # Arguments: label, expected folder, actual. Passes on an exact match.
+    if [ "$3" = "$2" ]; then echo "  ok:   ran in ${2#"$tmp"/}  $1"
+    else echo "  FAIL: $1: expected gh to run in $2, got: $3"; fail=$((fail + 1)); fi
+}
+
+# A session folder with a config (merge: human) and child repositories on
+# on-green, so gh runs only when the merge resolves to a child.
+rs="$tmp/rs"
+make_repo "$rs" human false none
+make_repo "$rs/web" on-green true
+make_repo "$rs/web/ui" on-green false
+make_repo "$rs/api" on-green false
+guard_at "$rs" "$(session_event SessionStart)" >/dev/null
+pin="--squash --match-head-commit abc123"
+
+# The everyday forms resolve to the repository they name.
+expect_ran_in "cd child && merge" "$rs/web" "$(gh_ran_in "$rs" "cd web && gh pr merge 41 $pin")"
+expect_ran_in "the deepest recorded repository wins" "$rs/web/ui" "$(gh_ran_in "$rs" "cd web/ui && gh pr merge 41 $pin")"
+mkdir -p "$rs/web/src/deep"
+expect_ran_in "a folder inside a child resolves to the child" "$rs/web" "$(gh_ran_in "$rs" "cd web/src/deep && gh pr merge 41 $pin")"
+expect_ran_in "absolute cd" "$rs/api" "$(gh_ran_in "$rs" "cd $rs/api && gh pr merge 41 $pin")"
+expect_ran_in "hook cwd in a child" "$rs/api" "$(gh_ran_in "$rs" "gh pr merge 41 $pin" "$rs/api")"
+expect_ran_in "relative cd from the hook cwd" "$rs/api" "$(gh_ran_in "$rs" "cd ../api && gh pr merge 41 $pin" "$rs/web")"
+expect_ran_in "cd --" "$rs/web" "$(gh_ran_in "$rs" "cd -- web && gh pr merge 41 $pin")"
+expect_ran_in "cd -L" "$rs/api" "$(gh_ran_in "$rs" "cd -L api && gh pr merge 41 $pin")"
+expect_ran_in "cd ~" "$rs/web" "$(STUB_HOME="$rs/web" gh_ran_in "$rs" "cd ~ && gh pr merge 41 $pin")"
+expect_ran_in "cd ~/path" "$rs/web/ui" "$(STUB_HOME="$rs/web" gh_ran_in "$rs" "cd ~/ui && gh pr merge 41 $pin")"
+expect_ran_in "two cds joined by &&" "$rs/web/ui" "$(gh_ran_in "$rs" "cd web && cd ui && gh pr merge 41 $pin")"
+expect_ran_in "a line continuation after &&" "$rs/web" "$(gh_ran_in "$rs" "cd web && \\${nl}gh pr merge 41 $pin")"
+expect_ran_in "a newline after &&" "$rs/web" "$(gh_ran_in "$rs" "cd web &&${nl}gh pr merge 41 $pin")"
+expect_deny_reason "no cd, the session folder's policy" "merge policy is 'human'" "$(run_bash "$rs" "gh pr merge 41 $pin")"
+
+# Every form the guard does not model makes the directory unknown, and the merge denies.
+for unknown_form in "cd web; gh pr merge 41 $pin" \
+                    "cd web${nl}gh pr merge 41 $pin" \
+                    "cd web || true && gh pr merge 41 $pin" \
+                    "true || cd web && gh pr merge 41 $pin" \
+                    "ls | cd web && gh pr merge 41 $pin" \
+                    "cd web && false || gh pr merge 41 $pin" \
+                    "cd web & gh pr merge 41 $pin" \
+                    'cd "$D" && gh pr merge 41 --squash --match-head-commit abc123' \
+                    'cd $(echo web) && gh pr merge 41 --squash --match-head-commit abc123' \
+                    'cd `echo web` && gh pr merge 41 --squash --match-head-commit abc123' \
+                    "cd - && gh pr merge 41 $pin" \
+                    "cd ~bob && gh pr merge 41 $pin" \
+                    "cd web/* && gh pr merge 41 $pin" \
+                    "cd && gh pr merge 41 $pin" \
+                    "cd web ui && gh pr merge 41 $pin" \
+                    "pushd web && gh pr merge 41 $pin" \
+                    "popd && gh pr merge 41 $pin" \
+                    "builtin cd web && gh pr merge 41 $pin" \
+                    "command cd web && gh pr merge 41 $pin" \
+                    "{ cd web; } && gh pr merge 41 $pin" \
+                    "eval \"cd web\" && gh pr merge 41 $pin" \
+                    "source ./go.sh && gh pr merge 41 $pin" \
+                    "env -C web gh pr merge 41 $pin" \
+                    "cd -P web && gh pr merge 41 $pin" \
+                    "cd web && git fetch origin && gh pr merge 41 $pin" \
+                    "cd web && echo y | gh pr merge 41 $pin" \
+                    "CDPATH=$rs cd web && gh pr merge 41 $pin" \
+                    "cd $rs/api && (cd $rs/web && true) && gh pr merge 41 $pin" \
+                    'x=$(cd web && pwd) && gh pr merge 41 --squash --match-head-commit abc123' \
+                    'echo $(cd web && gh pr merge 41 --squash --match-head-commit abc123)'; do
+    expect_deny_reason "unknown directory: $(printf '%s' "$unknown_form" | tr '\n' '~')" "working directory is unknown" "$(run_bash "$rs" "$unknown_form")"
+done
+
+# Stage-all reads the config of the repository it runs in, including git -C.
+# Only web sets deny_stage_all.
+expect_allow "stage-all in the session folder" "$(run_bash "$rs" "git add -A")"
+expect_deny "stage-all after cd child" "$(run_bash "$rs" "cd web && git add -A")"
+expect_deny "stage-all from a hook cwd in the child" "$(run_bash "$rs" "git add -A" "$rs/web")"
+expect_deny "stage-all with git -C child" "$(run_bash "$rs" "git -C web add -A")"
+expect_allow "stage-all with git -C another child" "$(run_bash "$rs" "git -C api add -A")"
+expect_allow "stage-all with git -C relative to a cd" "$(run_bash "$rs" "cd web && git -C ../api add -A")"
+expect_allow "stage-all in the deepest repository" "$(run_bash "$rs" "cd web/ui && git add -A")"
+expect_deny "stage-all with git -C back up to its parent" "$(run_bash "$rs" "cd web/ui && git -C .. add -A")"
+expect_deny "the second of two stage-alls" "$(run_bash "$rs" "cd api && git add -A && cd ../web && git add --all")"
+expect_deny "stage-all with an unreadable git -C, denied because a recorded repository sets deny_stage_all" "$(run_bash "$rs" 'git -C "$X" add -A')"
+
+# Merges are judged by the repository they run in.
+only_ran_in() {
+    # Arguments: folder. Succeeds when gh ran at least once and every call ran there.
+    [ -s "$gh_log" ] && [ "$(sort -u "$gh_log")" = "$1" ]
+}
+green_merge() {
+    # Arguments: session folder, command, optional view JSON. Prints the
+    # guard's decision with gh reporting the given PR state (default green).
+    GH_STUB_VIEW="${3:-$green}" run_bash "$1" "$2"
+}
+green_merge_at() {
+    # Arguments: session folder, command, hook cwd. Prints the guard's
+    # decision for a green PR with the merge run from that cwd.
+    GH_STUB_VIEW="$green" run_bash "$1" "$2" "$3"
+}
+failing='{"isDraft":false,"mergeable":"MERGEABLE","headRefOid":"abc123","changedFiles":1,"statusCheckRollup":[{"conclusion":"FAILURE"}]}'
+
+# AC 2: a parent session with no merge policy merges a child PR under the
+# child's on-green rules, and gh runs in the child.
+ac2="$tmp/ac2"
+make_repo "$ac2" none false none
+make_repo "$ac2/svc" on-green false
+guard_at "$ac2" "$(session_event SessionStart)" >/dev/null
+expect_deny_reason "parent with no merge policy, child with no recorded Evaluate" "no recorded Evaluate for PR 41 ($ac2/svc/.spade/guard/reviewed-head-41)" "$(green_merge "$ac2" "cd svc && gh pr merge 41 $pin")"
+check "parent with no merge policy, the denied check ran gh in the child" only_ran_in "$ac2/svc"
+printf 'abc123 PASS\n' > "$ac2/.spade/guard/reviewed-head-41"
+expect_deny_reason "a reviewed head recorded in the parent does not count for the child" "no recorded Evaluate" "$(green_merge "$ac2" "cd svc && gh pr merge 41 $pin")"
+mkdir -p "$ac2/svc/.spade/guard"
+printf 'abc123 PASS\n' > "$ac2/svc/.spade/guard/reviewed-head-41"
+expect_allow "parent with no merge policy, child on-green, every condition holds" "$(green_merge "$ac2" "cd svc && gh pr merge 41 $pin")"
+check "parent with no merge policy, every gh call ran in the child" only_ran_in "$ac2/svc"
+expect_deny_reason "parent with no merge policy, child on-green, failing check" "has no checks or a check that is not SUCCESS" "$(green_merge "$ac2" "cd svc && gh pr merge 41 $pin" "$failing")"
+expect_deny_reason "parent with no merge policy, child on-green, unpinned" "pin the merge exactly once" "$(green_merge "$ac2" "cd svc && gh pr merge 41 --squash")"
+expect_deny_reason "parent with no merge policy, the parent's own merge" "merge policy is 'human'" "$(green_merge "$ac2" "gh pr merge 41 $pin")"
+
+# The same from a parent without any config.
+printf 'abc123 PASS\n' > "$pn/a/.spade/guard/reviewed-head-41"
+expect_allow "parent without a config, child on-green, every condition holds" "$(green_merge "$pn" "cd a && gh pr merge 41 $pin")"
+check "parent without a config, every gh call ran in the child" only_ran_in "$pn/a"
+expect_deny_reason "parent without a config, child under human" "merge policy is 'human'" "$(green_merge "$pn" "cd b && gh pr merge 41 $pin")"
+
+# PS-3283, both directions: the child's policy decides, not the session folder's.
+mkdir -p "$rs/web/.spade/guard"
+printf 'abc123 PASS\n' > "$rs/web/.spade/guard/reviewed-head-41"
+expect_allow "PS-3283, human parent, on-green child merges" "$(green_merge "$rs" "cd web && gh pr merge 41 $pin")"
+check "PS-3283, human parent, gh ran in the child" only_ran_in "$rs/web"
+og="$tmp/og"
+make_repo "$og" on-green false none
+make_repo "$og/legacy" human false
+guard_at "$og" "$(session_event SessionStart)" >/dev/null
+printf 'abc123 PASS\n' > "$og/.spade/guard/reviewed-head-41"
+mkdir -p "$og/legacy/.spade/guard"
+printf 'abc123 PASS\n' > "$og/legacy/.spade/guard/reviewed-head-41"
+expect_deny_reason "PS-3283, on-green parent, human child denies" "merge policy is 'human'" "$(green_merge "$og" "cd legacy && gh pr merge 41 $pin")"
+check "PS-3283, on-green parent, gh never ran for the human child" test ! -s "$gh_log"
+expect_allow "PS-3283, on-green parent, its own merge still merges" "$(green_merge "$og" "gh pr merge 41 $pin")"
+check "PS-3283, on-green parent, its own merge ran gh in the parent" only_ran_in "$og"
+
+# Cross-repository merges stay closed from a child too.
+for elsewhere_form in "cd web && gh pr merge 41 -R other/repo $pin" \
+                      "cd web && gh pr merge 41 --repo other/repo $pin" \
+                      "cd web && gh pr merge 41 --repo=other/repo $pin" \
+                      "cd web && GH_REPO=other/repo gh pr merge 41 $pin" \
+                      "cd web && gh pr merge https://github.com/other/repo/pull/41 $pin"; do
+    expect_deny_reason "on-green child, $elsewhere_form" "drop -R, --repo, GH_REPO, or a PR URL" "$(green_merge "$rs" "$elsewhere_form")"
+done
+
+# Unknown and outside: a session folder without a config has no policy to fall back on.
+expect_deny_reason "parent without a config, unknown directory" "working directory is unknown" "$(green_merge "$pn" 'cd "$X" && gh pr merge 41 --squash --match-head-commit abc123')"
+expect_deny_reason "parent without a config, merge in the session folder itself" "outside every repository recorded for this session" "$(green_merge "$pn" "gh pr merge 41 $pin")"
+expect_deny_reason "parent without a config, merge after cd /tmp" "outside every repository recorded for this session" "$(green_merge "$pn" "cd /tmp && gh pr merge 41 $pin")"
+expect_deny_reason "parent without a config, merge in a repository created mid-session" "outside every repository recorded for this session" "$(green_merge "$pn" "cd d && gh pr merge 41 $pin")"
+
+# Single-repository regressions the review raised: still judged by the project's config.
+expect_deny_reason "single repository, cd /tmp && merge --repo" "drop -R, --repo, GH_REPO, or a PR URL" "$(green_merge "$project" "cd /tmp && gh pr merge 41 --repo other/repo $pin")"
+expect_allow "single repository, cd /tmp && merge, as before" "$(green_merge "$project" "cd /tmp && gh pr merge 41 $pin")"
+check "single repository, cd /tmp && merge still runs gh in the project" only_ran_in "$project"
+write_config on-green true
+expect_deny "single repository, git --git-dir … add -A" "$(run_bash "$project" "git --git-dir /elsewhere/.git add -A")"
+expect_deny "single repository, git --work-tree= … add ." "$(run_bash "$project" "git --work-tree=/elsewhere add .")"
+expect_deny "single repository, cd /tmp && git add -A" "$(run_bash "$project" "cd /tmp && git add -A")"
+write_config on-green false
+
+# Stage-all without a config at the session folder: b sets deny_stage_all, a does not.
+expect_deny "parent without a config, stage-all in the child that denies it" "$(run_bash "$pn" "cd b && git add -A")"
+expect_allow "parent without a config, stage-all in the child that allows it" "$(run_bash "$pn" "cd a && git add -A")"
+expect_allow "parent without a config, stage-all outside every repository" "$(run_bash "$pn" "git add -A")"
+expect_deny_reason "parent without a config, stage-all in an unknown directory" "working directory is unknown" "$(run_bash "$pn" "git --git-dir x/.git add -A")"
+
+# Edits are judged by the repository that holds the file.
+edit_at() {
+    # Arguments: session folder, file path. Prints the guard's decision for an Edit.
+    guard_at "$1" "$(pre_tool Edit "$(jq -cn --arg p "$2" '{file_path:$p}')")"
+}
+disarm() {
+    # Arguments: repositories. Removes their mode markers.
+    for r in "$@"; do rm -f "$r/.spade/guard/$session/mode"; done
+}
+
+# A child armed from a parent session gets the child's own classification.
+arm "$pn/a" quick
+expect_deny "parent without a config, armed child quick, its auth code" "$(edit_at "$pn" "$pn/a/src/auth/login.ts")"
+expect_allow "parent without a config, armed child quick, its README" "$(edit_at "$pn" "$pn/a/README.md")"
+# A sibling is classified by its own rules in the armed mode, and a path
+# outside every recorded repository is left alone.
+expect_allow "armed child quick, a sibling's README" "$(edit_at "$pn" "$pn/b/README.md")"
+expect_deny_reason "armed child quick, a sibling's auth code" "authentication and identity" "$(edit_at "$pn" "$pn/b/src/auth/login.ts")"
+expect_deny_reason "armed child quick, a sibling's .spade/config" "permission widening" "$(edit_at "$pn" "$pn/b/.spade/config")"
+expect_allow "armed child, the parent folder, outside every recorded repository" "$(edit_at "$pn" "$pn/notes.md")"
+expect_allow "armed child, a scratch file outside the session folder" "$(edit_at "$pn" "/tmp/spade-elsewhere/notes.md")"
+disarm "$pn/a"
+expect_allow "parent without a config, nothing armed, a sibling repository" "$(edit_at "$pn" "$pn/b/src/auth/login.ts")"
+arm "$rs/web" deliver
+expect_deny "parent with a config, armed child deliver, the child's .spade/config" "$(edit_at "$rs" "$rs/web/.spade/config")"
+expect_deny "parent with a config, armed child deliver, the child's bin/spade-guard" "$(edit_at "$rs" "$rs/web/bin/spade-guard")"
+expect_allow "parent with a config, armed child deliver, its auth code" "$(edit_at "$rs" "$rs/web/src/auth/login.ts")"
+expect_allow "armed child deliver, a sibling's ordinary code" "$(edit_at "$rs" "$rs/api/src/auth/login.ts")"
+expect_deny_reason "armed child deliver, a sibling's .spade/config" "permission widening" "$(edit_at "$rs" "$rs/api/.spade/config")"
+expect_deny_reason "armed child deliver, a sibling's config spelled in another case" "permission widening" "$(edit_at "$rs" "$rs/API/.spade/config")"
+expect_deny_reason "armed child deliver, its own config spelled in another case" "permission widening" "$(edit_at "$rs" "$rs/WEB/.spade/config")"
+expect_allow "armed child deliver, a file in the parent" "$(edit_at "$rs" "$rs/README.md")"
+expect_deny_reason "armed child deliver, the parent's .spade/config" "permission widening" "$(edit_at "$rs" "$rs/.spade/config")"
+disarm "$rs/web"
+
+# An armed parent keeps today's protection over a child, and gains the child's own.
+mkdir -p "$rs/api/src/skills"
+printf 'version: 9.9.9\n' > "$rs/api/src/CAPABILITIES.md"
+arm "$rs" deliver
+expect_deny "armed parent deliver, a child's .claude/settings.json, as today" "$(edit_at "$rs" "$rs/web/.claude/settings.json")"
+expect_deny "armed parent deliver, a child's .spade/config, by the child's rules" "$(edit_at "$rs" "$rs/web/.spade/config")"
+expect_allow "armed parent deliver, a child's ordinary code" "$(edit_at "$rs" "$rs/web/src/app.ts")"
+arm "$rs" quick
+expect_deny "armed parent quick, a framework-layout child's skill" "$(edit_at "$rs" "$rs/api/src/skills/x/SKILL.md")"
+expect_deny "armed parent quick, a child's auth code" "$(edit_at "$rs" "$rs/web/src/auth/login.ts")"
+expect_allow "armed parent quick, a child's README" "$(edit_at "$rs" "$rs/web/README.md")"
+disarm "$rs"
+
+# Planted configs never become repositories, even with a .git beside them.
+guard_at "$project" "$(session_event SessionStart)" >/dev/null
+for planted in .claude bin; do
+    make_repo "$project/$planted" on-green false
+done
+set_mode deliver
+expect_deny "planted .claude/.spade/config, .claude/settings.json still protected" "$(edit_at "$project" "$project/.claude/settings.json")"
+expect_deny "planted bin/.spade/config, bin/spade-guard still protected" "$(edit_at "$project" "$project/bin/spade-guard")"
+rm -rf "$project/.claude" "$project/bin"
+
+# A nested fixture config is classified relative to the root, as today.
+make_repo "$project/fixtures/x" on-green false none
+set_mode quick
+expect_allow "nested fixture config, its AGENTS.md is not a root governance file" "$(edit_at "$project" "$project/fixtures/x/AGENTS.md")"
+set_mode deliver
+expect_allow "nested fixture config, the fixture's config is not the root config" "$(edit_at "$project" "$project/fixtures/x/.spade/config")"
+clear_mode
+
+# A mode marker counts only at a recorded repository's own .spade/guard.
+mkdir -p "$project/sub/.spade/guard/$session" "$pn/.spade/guard/$session" "$pn/c/.spade/guard/$session" "$pn/d/.spade/guard/$session"
+for decoy in "$project/sub" "$pn" "$pn/c" "$pn/d"; do
+    printf 'quick\n' > "$decoy/.spade/guard/$session/mode"
+done
+expect_allow "decoy mode in a subfolder of the project is ignored" "$(edit_at "$project" "$project/sub/src/auth/login.ts")"
+expect_allow "decoy mode in a session folder without a config is ignored" "$(edit_at "$pn" "$pn/a/src/auth/login.ts")"
+expect_allow "decoy mode in a fixture without .git is ignored" "$(edit_at "$pn" "$pn/c/src/auth/login.ts")"
+expect_allow "mode in a repository created mid-session is ignored" "$(edit_at "$pn" "$pn/d/src/auth/login.ts")"
+rm -rf "$project/sub" "$pn/.spade" "$pn/c/.spade/guard" "$pn/d/.spade/guard"
+
+# Every deny that depends on a config names the config it read (PS-3283).
+expect_deny_reason "names the child's config, human policy" "(read $og/legacy/.spade/config)" "$(green_merge "$og" "cd legacy && gh pr merge 41 $pin")"
+expect_deny_reason "names the session folder's config, human policy" "(read $rs/.spade/config)" "$(green_merge "$rs" "gh pr merge 41 $pin")"
+expect_deny_reason "names the child's config, failing check" "(read $ac2/svc/.spade/config)" "$(green_merge "$ac2" "cd svc && gh pr merge 41 $pin" "$failing")"
+printf 'abc123 PARTIAL\n' > "$ac2/svc/.spade/guard/reviewed-head-41"
+expect_deny_reason "names the child's config, PARTIAL without merge_partial" "merge_partial is true in .spade/config. (read $ac2/svc/.spade/config)" "$(green_merge "$ac2" "cd svc && gh pr merge 41 $pin")"
+printf 'abc123 PASS\n' > "$ac2/svc/.spade/guard/reviewed-head-41"
+expect_deny_reason "names the child's config, merge floor" "(read $rs/web/.spade/config)" "$(GH_STUB_FILES='[{"filename":".github/workflows/ci.yml","patch":"+x"}]' green_merge "$rs" "cd web && gh pr merge 41 $pin")"
+expect_deny_reason "names the child's config, stage-all" "(read $rs/web/.spade/config)" "$(run_bash "$rs" "cd web && git add -A")"
+expect_deny_reason "names the child's config, stage-all in an unknown directory" "(read $pn/b/.spade/config)" "$(run_bash "$pn" "git --git-dir x/.git add -A")"
+write_config on-green true
+expect_deny_reason "names the project's config, single-repository stage-all" "(read $project/.spade/config)" "$(run_bash "$project" "git add -A")"
+write_config on-green false
+
+# Skills decide whether guards are live, and where reviewed-head goes, from
+# the same recorded list (docs/FRAMEWORK.md § Mechanical guards). These
+# helpers follow that rule as written, against what SessionStart recorded.
+recorded_list() {
+    # Arguments: folder. Prints the nearest .spade/guard/<session>/repos at or above it.
+    d="$1"
+    while :; do
+        [ -f "$d/.spade/guard/$session/repos" ] && { printf '%s\n' "$d/.spade/guard/$session/repos"; return 0; }
+        [ "$d" != / ] && [ -n "$d" ] || return 1
+        d=$(dirname "$d")
+    done
+}
+skill_live() {
+    # Arguments: folder. Succeeds when the nearest folder at or above it that
+    # holds .git or .spade/config is itself in the recorded list.
+    d="$1"
+    while [ ! -e "$d/.git" ] && [ ! -f "$d/.spade/config" ]; do
+        [ "$d" != / ] || return 1
+        d=$(dirname "$d")
+    done
+    list=$(recorded_list "$d") || return 1
+    grep -qxF "$d" "$list"
+}
+skill_not_live() { ! skill_live "$1"; }
+session_repo_for() {
+    # Arguments: folder. Prints the deepest recorded repository that holds it.
+    list=$(recorded_list "$1") || return 1
+    best=""
+    while IFS= read -r r; do
+        case "$1" in "$r"|"$r"/*) [ "${#r}" -gt "${#best}" ] && best="$r" ;; esac
+    done < "$list"
+    printf '%s\n' "$best"
+}
+check "live: a listed child under a parent with a config" skill_live "$pc/web"
+check "live: a folder inside a listed child" skill_live "$pc/web/src/app"
+check "live: a listed child under a parent without a config" skill_live "$pn/a"
+check "live: the parent with a config itself" skill_live "$pc"
+check "not live: a repository created mid-session under a parent with a config" skill_not_live "$pc/late"
+make_repo "$pc/.claude/worktrees/x" on-green false file
+check "not live: a worktree added mid-session under .claude/worktrees" skill_not_live "$pc/.claude/worktrees/x"
+check "not live: a folder inside that worktree" skill_not_live "$pc/.claude/worktrees/x/src"
+make_repo "$project/.claude/worktrees/x" on-green false file
+check "not live: an in-repo .claude/worktrees/x in a single repository" skill_not_live "$project/.claude/worktrees/x"
+set_mode deliver
+expect_deny "the guard still judges an in-repo worktree's edits as part of the project" "$(edit_at "$project" "$project/.claude/worktrees/x/.claude/settings.json")"
+clear_mode
+rm -rf "$project/.claude"
+
+# A session folder below its git top level: the folder is live, and
+# reviewed-head goes in it, where the guard reads it.
+mono="$tmp/mono"
+mkdir -p "$mono/.git"
+make_repo "$mono/sub" on-green false none
+guard_at "$mono/sub" "$(session_event SessionStart)" >/dev/null
+check "live: a session folder below its git top level" skill_live "$mono/sub"
+check "live: a folder inside that session folder" skill_live "$mono/sub/pkg"
+check "not live: the git top level above the session folder" skill_not_live "$mono"
+check "reviewed-head location: the session folder, not the git top level" test "$(session_repo_for "$mono/sub/pkg")" = "$mono/sub"
+printf 'abc123 PASS\n' > "$(session_repo_for "$mono/sub/pkg")/.spade/guard/reviewed-head-41"
+expect_allow "the guard reads reviewed-head where the skill rule wrote it" "$(green_merge "$mono/sub" "gh pr merge 41 $pin" "$green" )"
+check "reviewed-head location: a listed child for a merge run in it" test "$(session_repo_for "$pn/a/src")" = "$pn/a"
+
+# Delivery Review findings (PS-3305). Each evasion first, then the everyday
+# form it must leave alone.
+echo "delivery review findings"
+
+expect_deny_without() {
+    # Arguments: label, text the reason must contain, text it must not
+    # contain, output. Passes when the output is a deny whose reason contains
+    # the first text and not the second.
+    if printf '%s' "$4" | jq -e --arg want "$2" --arg not "$3" '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains($want) and (contains($not) | not))' >/dev/null 2>&1; then
+        echo "  ok:   deny  $1"
+    else
+        echo "  FAIL: expected deny for $1 with '$2' and without '$3', got: ${4:-<empty>}"
+        fail=$((fail + 1))
+    fi
+}
+
+# A cd inside a shell comment never moves the directory. The session folder
+# is human with deny_stage_all; the recorded child is on-green without it.
+cm="$tmp/cm"
+make_repo "$cm" human true none
+make_repo "$cm/green" on-green false
+guard_at "$cm" "$(session_event SessionStart)" >/dev/null
+mkdir -p "$cm/green/.spade/guard"
+printf 'abc123 PASS\n' > "$cm/green/.spade/guard/reviewed-head-5"
+expect_deny "a cd inside a comment, stage-all" "$(run_bash "$cm" "# note; cd green &&${nl}git add -A")"
+expect_deny_reason "a cd inside a comment, merge" "working directory is unknown" "$(green_merge "$cm" "# note; cd green &&${nl}gh pr merge 5 --match-head-commit abc123")"
+expect_allow "cd child && stage-all, the child's rule" "$(run_bash "$cm" "cd green && git add -A")"
+expect_allow "cd child && merge, the child's on-green rules" "$(green_merge "$cm" "cd green && gh pr merge 5 --match-head-commit abc123")"
+check "cd child && merge ran gh in the child" only_ran_in "$cm/green"
+
+# Forms outside the allow-list make the directory unknown. From a hook cwd in
+# web (on-green, reviewed) each of these really runs the merge in api.
+# A folder literally named `\..` makes the backslash form below run in api.
+mkdir -p "$rs/api/\\../web"
+for unmodelled in '$c ../api && gh pr merge 41 --squash --match-head-commit abc123' \
+                  "cd \$'\\x2e\\x2e/api' && gh pr merge 41 $pin" \
+                  'cd "`echo ../api`" && gh pr merge 41 --squash --match-head-commit abc123' \
+                  'cd "../api/\../web" && gh pr merge 41 --squash --match-head-commit abc123' \
+                  "find ../api/.spade -maxdepth 0 -execdir gh pr merge 41 $pin \\;" \
+                  "pnpm -C ../api exec gh pr merge 41 $pin" \
+                  "yarn --cwd ../api exec gh pr merge 41 $pin" \
+                  "git -C ../api bisect run gh pr merge 41 $pin" \
+                  "command eval 'cd ../api' && gh pr merge 41 $pin" \
+                  "builtin eval 'cd ../api' && gh pr merge 41 $pin" \
+                  "if eval 'cd ../api'; then gh pr merge 41 $pin; fi" \
+                  "trap 'cd ../api' DEBUG; gh pr merge 41 $pin" \
+                  "chdir ../api && gh pr merge 41 $pin" \
+                  "CDPATH+=$rs; cd api && gh pr merge 41 $pin" \
+                  "read CDPATH <<< $rs; cd api && gh pr merge 41 $pin" \
+                  "printf -v CDPATH %s $rs; cd api && gh pr merge 41 $pin" \
+                  "HOME=$rs/api; cd ~ && gh pr merge 41 $pin" \
+                  "cd '~' && gh pr merge 41 $pin" \
+                  "cd \\~ && gh pr merge 41 $pin" \
+                  "cd \"~/\" && gh pr merge 41 $pin" \
+                  "cd -P . && gh pr merge 41 $pin"; do
+    expect_deny_reason "outside the allow-list: $unmodelled" "working directory is unknown" "$(STUB_HOME="$rs/web" green_merge_at "$rs" "$unmodelled" "$rs/web")"
+done
+expect_deny_reason "ambient CDPATH, a relative cd" "working directory is unknown" "$(CDPATH="$rs/api" green_merge_at "$rs" "cd web && gh pr merge 41 $pin" "$rs")"
+expect_allow "ambient CDPATH, an absolute cd" "$(CDPATH="$rs/api" green_merge_at "$rs" "cd $rs/web && gh pr merge 41 $pin" "$rs")"
+check "ambient CDPATH, the absolute cd ran gh in the named repository" only_ran_in "$rs/web"
+# Symbolic links are followed, as git and gh follow them: web/lnk is api, so
+# the merge is judged by api, which has no recorded Evaluate.
+ln -s "$rs/api" "$rs/web/lnk"
+expect_deny_reason "a symlinked folder into another repository is judged there" "no recorded Evaluate for PR 41 ($rs/api/" "$(green_merge_at "$rs" "cd web/lnk && gh pr merge 41 $pin" "$rs")"
+expect_deny_reason "a hook cwd through a symlinked folder is judged where it leads" "no recorded Evaluate for PR 41 ($rs/api/" "$(green_merge_at "$rs" "gh pr merge 41 $pin" "$rs/web/lnk")"
+check "a symlinked folder, every gh call ran in the repository it leads to" only_ran_in "$rs/api"
+rm -f "$rs/web/lnk"
+expect_allow "unquoted cd ~/path, the everyday form" "$(STUB_HOME="$rs" green_merge_at "$rs" "cd ~/web && gh pr merge 41 $pin" "$rs")"
+expect_allow "cd -L, the everyday form" "$(green_merge_at "$rs" "cd -L . && gh pr merge 41 $pin" "$rs/web")"
+expect_allow "the hook cwd alone, the everyday form" "$(green_merge_at "$rs" "gh pr merge 41 $pin" "$rs/web")"
+
+# A stage-all in an unknown directory denies when any recorded repository
+# sets deny_stage_all (web does here), not only by the session folder's rule.
+expect_deny_reason "an exported GIT_DIR before a stage-all" "working directory is unknown" "$(run_bash "$rs" "export GIT_DIR=$rs/web/.git; git add -A" "$rs/api")"
+expect_allow "stage-all in a child without deny_stage_all, the everyday form" "$(run_bash "$rs" "git add -A" "$rs/api")"
+
+# The hook cwd reaches the walker byte for byte. awk -v would decode the
+# backslash escapes in this folder name to /../, judging api instead of web.
+decoy="$rs/web/\\057..\\057api"
+mkdir -p "$decoy"
+expect_deny "a hook cwd with backslash escapes, stage-all by its own repository" "$(run_bash "$rs" "git add -A" "$decoy")"
+expect_ran_in "a hook cwd with backslash escapes, merge in its own repository" "$rs/web" "$(gh_ran_in "$rs" "gh pr merge 41 $pin" "$decoy")"
+expect_ran_in "a cd after a hook cwd with backslash escapes" "$rs/web" "$(gh_ran_in "$rs" "cd . && gh pr merge 41 $pin" "$decoy")"
+rm -rf "$decoy"
+
+# The walker's output separates fields with tabs and lines, so a hook cwd
+# whose name holds either is unknown rather than cut short.
+tab=$(printf '\t')
+mkdir -p "$rs/web/ui$tab" "$rs/web/ui$nl/tmp" "$pn/a$nl""x"
+expect_deny_reason "a hook cwd whose name holds a tab, stage-all" "tab or line break" "$(run_bash "$rs" "git add -A" "$rs/web/ui$tab")"
+expect_deny_reason "a hook cwd whose name holds a tab, merge" "tab or line break" "$(green_merge_at "$rs" "gh pr merge 41 $pin" "$rs/web/ui$tab")"
+expect_deny_reason "a hook cwd whose name holds a line break, stage-all" "tab or line break" "$(run_bash "$rs" "git add -A" "$rs/web/ui$nl/tmp")"
+expect_deny_reason "a hook cwd whose name holds a line break, merge outside every repository" "tab or line break" "$(green_merge_at "$pn" "gh pr merge 41 $pin" "$pn/a$nl""x")"
+expect_deny_reason "a hook cwd ending in a line break, stage-all" "tab or line break" "$(run_bash "$rs" "git add -A" "$rs/web/ui$nl")"
+expect_deny_reason "a hook cwd ending in a line break, merge" "tab or line break" "$(green_merge_at "$rs" "gh pr merge 41 $pin" "$rs/web/ui$nl")"
+rm -rf "$rs/web/ui$tab" "$rs/web/ui$nl" "$pn/a$nl""x"
+
+# On a case-insensitive filesystem WEB/.spade/config is web's config, so an
+# armed ancestor also classifies the path against the recorded repository
+# that matches it without regard to case.
+arm "$rs" deliver
+expect_deny_reason "armed parent deliver, a child's config spelled in another case" "permission widening" "$(guard_at "$rs" "$(pre_tool Write "$(jq -cn --arg p "$rs/WEB/.spade/config" '{file_path:$p}')")")"
+expect_allow "armed parent deliver, a child's README spelled in another case, the everyday form" "$(edit_at "$rs" "$rs/WEB/README.md")"
+disarm "$rs"
+
+# The recorded list decides which config a call is judged by, so an armed
+# session cannot rewrite it with a file tool, wherever it lives.
+arm "$rs" deliver
+expect_deny_reason "armed deliver, write the session's repos list" "permission widening" "$(guard_at "$rs" "$(pre_tool Write "$(jq -cn --arg p "$rs/.spade/guard/$session/repos" '{file_path:$p}')")")"
+expect_deny_reason "armed deliver, edit the session's repos list" "permission widening" "$(edit_at "$rs" "$rs/.spade/guard/$session/repos")"
+expect_allow "armed deliver, another file under .spade/, the everyday form" "$(edit_at "$rs" "$rs/.spade/plans/PS-1.md")"
+disarm "$rs"
+arm "$pn/a" deliver
+expect_deny_reason "armed child deliver, its copy of the repos list" "permission widening" "$(edit_at "$pn" "$pn/a/.spade/guard/$session/repos")"
+disarm "$pn/a"
+arm "$rs/web" quick
+expect_deny_reason "armed child quick, the parent's repos list" "permission widening" "$(edit_at "$rs" "$rs/.spade/guard/$session/repos")"
+expect_deny_reason "armed child quick, a sibling's .spade/config" "permission widening" "$(edit_at "$rs" "$rs/api/.spade/config")"
+disarm "$rs/web"
+
+# A single-repository session resolves an unknown directory to the session
+# folder, exactly as before.
+expect_allow "single repository, unknown directory, merge" "$(green_merge "$project" 'cd "$X" && gh pr merge 41 --squash --match-head-commit abc123')"
+check "single repository, unknown directory, gh ran in the project" only_ran_in "$project"
+expect_allow "single repository, a command before the merge" "$(green_merge "$project" "git fetch origin && gh pr merge 41 $pin")"
+expect_allow "single repository, a comment before the merge" "$(green_merge "$project" "# note; cd x &&${nl}gh pr merge 41 $pin")"
+
+# gh and git aimed elsewhere by the environment are denied like -R.
+for env_form in "cd web && GH_HOST=evil.example gh pr merge 41 $pin" \
+                "cd web && GIT_DIR=$rs/api/.git gh pr merge 41 $pin" \
+                "cd web && GIT_WORK_TREE=$rs/api gh pr merge 41 $pin" \
+                "cd web && env GH_HOST=evil.example gh pr merge 41 $pin"; do
+    expect_deny_reason "aimed elsewhere: $env_form" "drop -R, --repo, GH_REPO, or a PR URL" "$(green_merge "$rs" "$env_form")"
+done
+expect_deny "aimed elsewhere: an exported GIT_DIR before the merge" "$(green_merge "$rs" "cd web && export GIT_DIR=$rs/api/.git && gh pr merge 41 $pin")"
+expect_deny_reason "single repository, GH_HOST prefix" "drop -R, --repo, GH_REPO, or a PR URL" "$(green_merge "$project" "GH_HOST=evil.example gh pr merge 41 $pin")"
+expect_deny_reason "single repository, exported GH_HOST" "drop -R, --repo, GH_REPO, or a PR URL" "$(green_merge "$project" "export GH_HOST=evil.example; gh pr merge 41 $pin")"
+expect_deny_reason "single repository, GH_HOST set by printf -v and exported" "drop -R, --repo, GH_REPO, or a PR URL" "$(green_merge "$project" "printf -v GH_HOST %s evil.example; export GH_HOST; gh pr merge 41 $pin")"
+expect_allow "single repository, an unrelated environment prefix, the everyday form" "$(green_merge "$project" "GH_PROMPT_DISABLED=1 gh pr merge 41 $pin")"
+expect_allow "an unrelated environment prefix, the everyday form" "$(green_merge "$rs" "cd web && GH_PROMPT_DISABLED=1 gh pr merge 41 $pin")"
+
+# A deny names only a config it used: a stage-all check that read a config
+# and passed leaves no suffix on a later merge deny.
+pz="$tmp/pz"
+make_repo "$pz/a" on-green false
+make_repo "$pz/b" on-green false
+guard_at "$pz" "$(session_event SessionStart)" >/dev/null
+expect_deny_without "no stale config name after an unknown stage-all" "working directory is unknown" "(read" "$(run_bash "$pz" 'git -C "$x" add -A; gh pr merge 5')"
+expect_deny_without "no stale config name after a known stage-all" "working directory is unknown" "(read" "$(run_bash "$pz" 'git add -A && cd "$x" && gh pr merge 5' "$pz/a")"
+expect_deny_without "no config name on an outside-the-repositories deny" "outside every repository" "(read" "$(run_bash "$pz" 'gh pr merge 5; git -C a add -A')"
+expect_deny_reason "a deny that reads a config still names it" "(read $pz/a/.spade/config)" "$(green_merge "$pz" "cd a && gh pr merge 5 --match-head-commit abc123")"
+
+# Path normalisation never glob-expands a component against the guard's cwd.
+mkdir -p "$tmp/globcwd/a" "$tmp/globcwd/b"
+set_mode deliver
+expect_deny "deliver, a glob component before .. to .spade/config" "$(cd "$tmp/globcwd" && run_guard "$(pre_tool Write "{\"file_path\":\"$project/*/../.spade/config\"}")")"
+expect_allow "deliver, a glob component leaving the project is left alone, not expanded" "$(cd "$tmp/globcwd" && run_guard "$(pre_tool Write "{\"file_path\":\"$project/*/../../outside.txt\"}")")"
+expect_allow "deliver, a literal * in a safe file name" "$(cd "$tmp/globcwd" && run_guard "$(pre_tool Write "{\"file_path\":\"$project/docs/*.md\"}")")"
+clear_mode
+
+# Delivery Review findings, round 2 (PS-3305). From a hook cwd in api, which
+# allows stage-all, each of these really stages in web, which denies it.
+mkdir -p "$rs/web/\\../api" "$rs/web/sub" "$rs/api/src" "$tmp/rs-out"
+ln -s "$rs/web/sub" "$rs/api/lnk"
+ln -s "$rs/web" "$tmp/rs-out/l2"
+for stage_form in "cd \$'\\x2e\\x2e/web' && git add -A" \
+                  "git -C \$'..\\x2fweb' add -A" \
+                  'cd "`echo ../web`" && git add -A' \
+                  'git -C "`echo ../web`" add -A' \
+                  'cd "../web/\../api" && git add -A' \
+                  'find ../web/.spade -maxdepth 0 -execdir git add -A \;' \
+                  'pnpm -C ../web exec git add -A' \
+                  'yarn --cwd ../web exec git add -A' \
+                  'git -C ../web bisect run git add -A'; do
+    expect_deny_reason "stage-all really in web: $stage_form" "working directory is unknown" "$(run_bash "$rs" "$stage_form" "$rs/api")"
+done
+# A symbolic link into web is followed, so web's own rule denies.
+for link_form in "cd $tmp/rs-out/l2 && git add -A" \
+                 "git -C $tmp/rs-out/l2 add -A" \
+                 'git -C lnk/.. add -A'; do
+    expect_deny_reason "stage-all through a link into web: $link_form" "disabled in this repository (guards.deny_stage_all). Stage the exact paths you changed. (read $rs/web/.spade/config)" "$(run_bash "$rs" "$link_form" "$rs/api")"
+done
+# The shell rewrites these words, so they are never read as a literal path.
+expect_deny_reason "an ANSI-C quoted cd is not literal" "cannot read literally" "$(run_bash "$rs" "cd \$'\\x2e\\x2e/web' && git add -A" "$rs/api")"
+expect_deny_reason "a backtick inside double quotes is not literal" "cannot read literally" "$(run_bash "$rs" 'cd "`echo ../web`" && git add -A' "$rs/api")"
+expect_deny_reason "a backslash inside double quotes is not literal" "cannot read literally" "$(run_bash "$rs" 'cd "../web/\../api" && git add -A' "$rs/api")"
+# The everyday forms stay allowed.
+expect_allow "stage-all after cd ../api from web" "$(run_bash "$rs" "cd ../api && git add -A" "$rs/web")"
+expect_allow "stage-all after a double-quoted cd from web" "$(run_bash "$rs" 'cd "../api" && git add -A' "$rs/web")"
+expect_allow "stage-all with git -C ../api from web" "$(run_bash "$rs" "git -C ../api add -A" "$rs/web")"
+expect_deny "an ANSI-C quoted flag is still a stage-all" "$(run_bash "$rs" "git add \$'-A'" "$rs/web")"
+expect_deny "an ANSI-C quoted command word is still a stage-all" "$(run_bash "$rs" "\$'git' add -A" "$rs/web")"
+for prefix in "command" "time" "nice" "nice -n 5" "nice -n5" "env GIT_PAGER=cat" "GIT_PAGER=cat" "GIT_PAGER=cat command"; do
+    expect_allow "stage-all behind $prefix" "$(run_bash "$rs" "$prefix git add -A" "$rs/api")"
+done
+expect_deny_reason "stage-all behind sudo, unknown" "working directory is unknown" "$(run_bash "$rs" "sudo git add -A" "$rs/api")"
+expect_deny_reason "stage-all behind an assignment that is not literal, unknown" "working directory is unknown" "$(run_bash "$rs" 'X=$Y git add -A' "$rs/api")"
+ln -s "$rs/api/src" "$rs/api/srclink"
+expect_allow "a symlinked folder inside the same repository" "$(run_bash "$rs" "cd srclink && git add -A" "$rs/api")"
+expect_allow "cd through a symlink and back up, which the shell resolves lexically" "$(run_bash "$rs" "cd lnk/.. && git add -A" "$rs/api")"
+expect_deny_reason "a folder that does not exist" "working directory is unknown" "$(run_bash "$rs" "cd nosuch && git add -A" "$rs/api")"
+
+# Merges: the everyday prefixes still read the repository, and gh runs there.
+for prefix in "command" "time" "nice -n 5" "env GH_PROMPT_DISABLED=1"; do
+    expect_ran_in "merge behind $prefix" "$rs/web" "$(GH_STUB_VIEW="$green" gh_ran_in "$rs" "$prefix gh pr merge 41 $pin" "$rs/web")"
+done
+expect_ran_in "merge after cd ../web from api" "$rs/web" "$(GH_STUB_VIEW="$green" gh_ran_in "$rs" "cd ../web && gh pr merge 41 $pin" "$rs/api")"
+# A symlink outside the session folder into a recorded repository: og is
+# on-green and reviewed, legacy is human, and the merge really runs in legacy.
+mkdir -p "$tmp/og-out"
+ln -s "$og/legacy" "$tmp/og-out/l3"
+expect_deny_reason "a symlink outside the session folder into a recorded repository is judged there" "merge policy is 'human' (autonomy.deliver.merge). The human operates the merge, or sets the policy to on-green in .spade/config themselves. (read $og/legacy/.spade/config)" "$(green_merge "$og" "cd $tmp/og-out/l3 && gh pr merge 41 $pin")"
+expect_allow "the on-green parent's own merge, the everyday form" "$(green_merge "$og" "cd $og && gh pr merge 41 $pin")"
+
+# Any mention of GH_REPO, GH_HOST, GIT_DIR or GIT_WORK_TREE in a merge command
+# denies, even one that clears it: a positional `unset` / `env -u` exemption
+# was forgeable (`export env -u GH_REPO; …`, a continued `unset` line).
+for set_form in "unset GIT_DIR GH_HOST && gh pr merge 41 $pin" \
+                "env -u GIT_DIR gh pr merge 41 $pin" \
+                "env -u GIT_DIR -u GH_HOST gh pr merge 41 $pin" \
+                "export env -u GH_REPO; : \${GH_REPO:=o/r}; gh pr merge 41 $pin" \
+                "read -r \\
+unset GH_HOST <<< \"a evil.example\"; export \\
+unset GH_HOST; gh pr merge 41 $pin" \
+                "read GH_HOST; gh pr merge 41 $pin" \
+                "env -u GIT_DIR GH_HOST=evil.example gh pr merge 41 $pin" \
+                "unset GIT_DIR; export GH_HOST; gh pr merge 41 $pin" \
+                "GH_HOST+=x gh pr merge 41 $pin" \
+                "env GIT_DIR gh pr merge 41 $pin"; do
+    expect_deny_reason "single repository, $set_form" "drop -R, --repo, GH_REPO, or a PR URL" "$(green_merge "$project" "$set_form")"
+done
+
+# SessionEnd removes the session's markers wherever they were written.
+guard_at "$pn" "$(session_event SessionEnd)" >/dev/null
+check "parent without a config, SessionEnd removes every child's markers" absent "$pn/a/.spade/guard/$session" "$pn/b/.spade/guard/$session"
+guard_at "$pc" "$(session_event SessionEnd)" >/dev/null
+check "parent with a config, SessionEnd removes its markers" absent "$pc/.spade/guard/$session"
 
 echo
 echo "spade-guard: $fail failure(s)"
