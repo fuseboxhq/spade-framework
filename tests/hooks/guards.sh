@@ -369,6 +369,7 @@ expect_deny "on-green, --repo elsewhere" "$(GH_STUB_VIEW="$green" run_guard "$(p
 expect_deny "on-green, GH_REPO prefix" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"GH_REPO=other/repo gh pr merge 41 --squash --match-head-commit abc123"}')")"
 expect_deny "on-green, PR URL" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge https://github.com/other/repo/pull/41 --squash --match-head-commit abc123"}')")"
 expect_deny "on-green, --admin" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --admin --match-head-commit abc123"}')")"
+expect_deny "on-green, --admin=true" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --admin=true --match-head-commit abc123"}')")"
 expect_deny "on-green, pin repeated with another head" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123 --match-head-commit def456"}')")"
 expect_deny "on-green, glab merge unsupported" "$(run_guard "$(pre_tool Bash '{"command":"glab mr merge 7"}')")"
 
@@ -1193,6 +1194,115 @@ check "SessionEnd with a path as session id removes nothing outside .spade/guard
 nr="$tmp/nr"
 make_repo "$nr/a" on-green false
 expect_deny_reason "no SessionStart seen, merge in a child" "no repositories were recorded for this session" "$(green_merge "$nr" "cd a && gh pr merge 41 $pin")"
+
+# A human go-ahead (PS-3366). The agent records the human's explicit
+# instruction to merge one PR at one head, and the guard then treats the merge
+# as the human's own: policy, recorded Evaluate, checks, and the merge floor
+# are not consulted. What stays is one gh pr merge of that PR, in this
+# repository, pinned to that head.
+echo "human go-ahead"
+go_ahead() {
+    # Arguments: repository, PR number, head SHA. Records a go-ahead there.
+    mkdir -p "$1/.spade/guard/$session"
+    printf '%s Kevin: "merge it"\n' "$3" > "$1/.spade/guard/$session/human-merge-$2"
+}
+hg="$tmp/hg"
+make_repo "$hg" human false none
+guard_at "$hg" "$(session_event SessionStart)" >/dev/null
+nochecks='{"isDraft":false,"mergeable":"MERGEABLE","headRefOid":"abc123","changedFiles":1,"statusCheckRollup":[]}'
+expect_deny_reason "human policy, no go-ahead" "merge policy is 'human'" "$(green_merge "$hg" "gh pr merge 41 $pin")"
+go_ahead "$hg" 41 abc123
+expect_allow "go-ahead, human policy" "$(green_merge "$hg" "gh pr merge 41 $pin")"
+check "go-ahead, gh ran in the repository" only_ran_in "$hg"
+expect_allow "go-ahead, no recorded Evaluate and no checks" "$(green_merge "$hg" "gh pr merge 41 $pin" "$nochecks")"
+expect_allow "go-ahead, a failing check" "$(green_merge "$hg" "gh pr merge 41 $pin" "$failing")"
+expect_allow "go-ahead, a merge-floor path" "$(GH_STUB_FILES='[{"filename":".github/workflows/ci.yml","patch":"+x"},{"filename":"bin/spade-guard","patch":"+x"}]' green_merge "$hg" "gh pr merge 41 $pin")"
+expect_allow "go-ahead, pinned with = and other flags" "$(green_merge "$hg" "gh pr merge 41 --squash --delete-branch --match-head-commit=abc123")"
+expect_deny_reason "human policy, another PR has no go-ahead" "merge policy is 'human'" "$(green_merge "$hg" "gh pr merge 42 $pin")"
+
+# It is bound to one head.
+moved='{"isDraft":false,"mergeable":"MERGEABLE","headRefOid":"def456","changedFiles":1,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
+expect_deny_reason "go-ahead for an older head, the policy decides" "merge policy is 'human'" "$(green_merge "$hg" "gh pr merge 41 --squash --match-head-commit def456" "$moved")"
+expect_deny_reason "go-ahead for an older head, the deny says so" "is for head abc123, and the head is now def456" "$(green_merge "$hg" "gh pr merge 41 --squash --match-head-commit def456" "$moved")"
+expect_deny_reason "go-ahead, gh returns nothing" "head is unknown" "$(GH_STUB_VIEW="" run_bash "$hg" "gh pr merge 41 $pin")"
+printf '\n' > "$hg/.spade/guard/$session/human-merge-43"
+expect_deny_reason "an empty go-ahead file never matches" "is for head none" "$(green_merge "$hg" "gh pr merge 43 $pin")"
+printf 'Kevin said merge abc123\n' > "$hg/.spade/guard/$session/human-merge-46"
+expect_deny_reason "a go-ahead file that does not start with the head" "is for head Kevin" "$(green_merge "$hg" "gh pr merge 46 $pin")"
+
+# The number is the word straight after merge, and only digits.
+expect_deny_reason "go-ahead, the number as an option's value" "merge policy is 'human'" "$(green_merge "$hg" "gh pr merge --body 41 $pin")"
+expect_deny_reason "go-ahead for 41 does not cover 041" "merge policy is 'human'" "$(green_merge "$hg" "gh pr merge 041 $pin")"
+expect_deny_reason "go-ahead for 41 does not cover 41abc" "merge policy is 'human'" "$(green_merge "$hg" "gh pr merge 41abc $pin")"
+
+# It merges now, and a PR that is ready.
+expect_deny_reason "go-ahead, --auto" "Drop --auto" "$(green_merge "$hg" "gh pr merge 41 --auto $pin")"
+draft='{"isDraft":true,"mergeable":"MERGEABLE","headRefOid":"abc123","changedFiles":1,"statusCheckRollup":[]}'
+expect_deny_reason "go-ahead, a draft" "is a draft" "$(green_merge "$hg" "gh pr merge 41 $pin" "$draft")"
+
+# A stale go-ahead never blocks what the ordinary checks allow, and a
+# go-ahead works where the policy is absent or on-green.
+hs="$tmp/hs"
+make_repo "$hs" on-green false none
+guard_at "$hs" "$(session_event SessionStart)" >/dev/null
+mkdir -p "$hs/.spade/guard"
+printf 'def456 PASS\n' > "$hs/.spade/guard/reviewed-head-41"
+go_ahead "$hs" 41 abc123
+expect_allow "a stale go-ahead, on-green and reviewed at the new head" "$(green_merge "$hs" "gh pr merge 41 --squash --match-head-commit def456" "$moved")"
+go_ahead "$hs" 47 abc123
+expect_allow "go-ahead under on-green, a merge-floor path and no recorded Evaluate" "$(GH_STUB_FILES='[{"filename":".github/workflows/ci.yml","patch":"+x"}]' green_merge "$hs" "gh pr merge 47 $pin")"
+hp="$tmp/hp"
+make_repo "$hp" none false none
+guard_at "$hp" "$(session_event SessionStart)" >/dev/null
+go_ahead "$hp" 41 abc123
+expect_allow "go-ahead with no merge policy set" "$(green_merge "$hp" "gh pr merge 41 $pin")"
+
+# A session without an id keeps no go-ahead.
+mkdir -p "$hg/.spade/guard/unknown"
+printf 'abc123 stray\n' > "$hg/.spade/guard/unknown/human-merge-41"
+expect_deny_reason "a go-ahead under the id-less fallback folder" "merge policy is 'human'" "$(GH_STUB_VIEW="$green" guard_at "$hg" "$(jq -cn --arg c "gh pr merge 41 $pin" '{hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {command: $c}}')")"
+
+# The command is still pinned and local.
+expect_deny_reason "go-ahead, unpinned" "pin the merge exactly once" "$(green_merge "$hg" "gh pr merge 41 --squash")"
+expect_deny_reason "go-ahead, pinned to another head" "pin the merge to the reviewed head" "$(green_merge "$hg" "gh pr merge 41 --squash --match-head-commit def456")"
+expect_deny_reason "go-ahead, pinned twice" "pin the merge exactly once" "$(green_merge "$hg" "gh pr merge 41 --match-head-commit abc123 --match-head-commit abc123")"
+expect_deny_reason "go-ahead, --admin" "--admin bypasses branch protection" "$(green_merge "$hg" "gh pr merge 41 --admin $pin")"
+expect_deny_reason "go-ahead, --admin=true" "--admin bypasses branch protection" "$(green_merge "$hg" "gh pr merge 41 --admin=true $pin")"
+for elsewhere_form in "gh pr merge 41 -R other/repo $pin" \
+                      "gh pr merge 41 --repo other/repo $pin" \
+                      "GH_REPO=other/repo gh pr merge 41 $pin" \
+                      "GH_HOST=evil.example gh pr merge 41 $pin" \
+                      "GIT_DIR=/elsewhere/.git gh pr merge 41 $pin" \
+                      "export GIT_WORK_TREE=/elsewhere; gh pr merge 41 $pin"; do
+    expect_deny_reason "go-ahead, $elsewhere_form" "drop -R, --repo, GH_REPO, or a PR URL" "$(green_merge "$hg" "$elsewhere_form")"
+done
+expect_deny_reason "go-ahead, a PR URL is not a number, so the policy decides" "merge policy is 'human'" "$(green_merge "$hg" "gh pr merge https://github.com/other/repo/pull/41 $pin")"
+expect_deny_reason "go-ahead, two merges in one command" "one command may merge one PR" "$(green_merge "$hg" "gh pr merge 41 $pin; gh pr merge 42 $pin")"
+expect_deny_reason "go-ahead, glab is not covered" "a human go-ahead covers gh pr merge only" "$(green_merge "$hg" "glab mr merge 41")"
+expect_deny_reason "go-ahead, gh api is not covered" "merge policy is 'human'" "$(green_merge "$hg" "gh api -X PUT repos/o/r/pulls/41/merge")"
+
+# It ends with the session, and another session's marker does not count.
+mkdir -p "$hg/.spade/guard/other-session"
+printf 'abc123 someone else\n' > "$hg/.spade/guard/other-session/human-merge-44"
+expect_deny_reason "a go-ahead recorded by another session" "merge policy is 'human'" "$(green_merge "$hg" "gh pr merge 44 $pin")"
+printf 'abc123 stray\n' > "$hg/.spade/guard/human-merge-45"
+expect_deny_reason "a go-ahead outside the session directory" "merge policy is 'human'" "$(green_merge "$hg" "gh pr merge 45 $pin")"
+guard_at "$hg" "$(session_event SessionEnd)" >/dev/null
+check "SessionEnd removes the go-ahead" absent "$hg/.spade/guard/$session/human-merge-41"
+check "SessionEnd leaves another session's files alone" test -f "$hg/.spade/guard/other-session/human-merge-44"
+
+# It follows the target repository in a multi-repository session.
+hm="$tmp/hm"
+make_repo "$hm" human false none
+make_repo "$hm/web" human false
+make_repo "$hm/api" human false
+guard_at "$hm" "$(session_event SessionStart)" >/dev/null
+go_ahead "$hm/web" 41 abc123
+expect_allow "go-ahead in a child, merge run in that child" "$(green_merge "$hm" "cd web && gh pr merge 41 $pin")"
+check "go-ahead in a child, gh ran in the child" only_ran_in "$hm/web"
+expect_deny_reason "go-ahead in a sibling does not count" "merge policy is 'human'" "$(green_merge "$hm" "cd api && gh pr merge 41 $pin")"
+expect_deny_reason "go-ahead in a child does not count for the parent" "merge policy is 'human'" "$(green_merge "$hm" "gh pr merge 41 $pin")"
+expect_deny_reason "go-ahead in a child, unknown working directory" "working directory is unknown" "$(green_merge "$hm" "cd web; gh pr merge 41 $pin")"
 
 # SessionEnd removes the session's markers wherever they were written.
 guard_at "$pn" "$(session_event SessionEnd)" >/dev/null

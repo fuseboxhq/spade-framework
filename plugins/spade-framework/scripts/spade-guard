@@ -113,7 +113,7 @@ deny_suffix=""
 deny() {
     # Arguments: reason. Prints one PreToolUse deny decision and exits 0.
     # A deny that depends on a config names it through deny_suffix.
-    jq -cn --arg reason "$1$deny_suffix" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
+    jq -cn --arg reason "$1$deny_suffix${go_ahead_note:-}" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
     exit 0
 }
 
@@ -1086,9 +1086,95 @@ $paths
 EOF
 }
 
+merge_command_checks() {
+    # Arguments: PR number, head SHA the guard read. Denies unless the merge
+    # command in $merge names only this repository's PR and pins that head.
+    pinned=$(printf '%s' "$merge" | awk -F'\t' -v sha="$2" '
+        {
+            for (k = 4; k <= NF; k++) {
+                if ($k == "--match-head-commit" && $(k + 1) == sha) { print "ok"; exit }
+                if ($k == "--match-head-commit=" sha) { print "ok"; exit }
+            }
+        }
+    ')
+    pins=$(printf '%s' "$merge" | awk -F'\t' '{ n = 0; for (k = 4; k <= NF; k++) if ($k == "--match-head-commit" || $k ~ /^--match-head-commit=/) n++; print n }')
+    # Every check above read the target repository, so a merge aimed anywhere
+    # else would be checked against the wrong PR. Besides -R, --repo, and a PR
+    # URL, the environment can aim gh elsewhere: GH_REPO and GH_HOST name
+    # another repository or host, and GIT_DIR or GIT_WORK_TREE another
+    # checkout. An assignment anywhere in the command counts, and so does the
+    # bare name, which export, read, or printf -v can set. There is no
+    # exemption for `unset` or `env -u`: a positional one was forgeable, and
+    # failing closed on a rare remedy costs little.
+    elsewhere=$(printf '%s' "$segments" | awk -F'\t' "$guard_awk_lib"'
+        {
+            for (k = 2; k <= NF; k++) {
+                t = w(k)
+                if (t == "-R" || t == "--repo" || t ~ /^(-R|--repo=)./ || t ~ /^(GH_REPO|GH_HOST|GIT_DIR|GIT_WORK_TREE)\+?=/ || t ~ /\/pull\//) { print "yes"; exit }
+                if (t ~ /^(GH_REPO|GH_HOST|GIT_DIR|GIT_WORK_TREE)$/) { print "yes"; exit }
+            }
+        }
+    ')
+    [ "$elsewhere" != yes ] || deny "SPADE guard: on-green merges only the target repository's own PR by number; drop -R, --repo, GH_REPO, or a PR URL, and leave GH_HOST, GIT_DIR, and GIT_WORK_TREE unset."
+    admin=$(printf '%s' "$merge" | awk -F'\t' '{ for (k = 4; k <= NF; k++) if ($k == "--admin" || $k ~ /^--admin=/) { print "yes"; exit } }')
+    [ "$admin" != yes ] || deny "SPADE guard: --admin bypasses branch protection, so the guard never lets an agent use it."
+    [ "$pins" = 1 ] || deny "SPADE guard: pin the merge exactly once with --match-head-commit; a repeated pin is ambiguous."
+    [ "$pinned" = ok ] \
+        || deny "SPADE guard: pin the merge to the reviewed head with a literal SHA the guard can read: gh pr merge $1 --match-head-commit $2 ..."
+}
+
+human_go_ahead() {
+    # Arguments: target repository. Sets go_ahead=yes when the human's
+    # recorded go-ahead covers this merge, and denies when a go-ahead for the
+    # current head exists but the command does not fit it. With no go-ahead,
+    # or one for an older head, it leaves go_ahead=no for the ordinary
+    # policy checks.
+    #
+    # The marker is .spade/guard/<session>/human-merge-<pr> in the target
+    # repository, one line starting with the head SHA the human approved. The
+    # agent writes it only on the human's explicit instruction
+    # (docs/FRAMEWORK.md § Ship and merge policy). A go-ahead is the human's
+    # own merge operated by the agent, so the policy, the recorded Evaluate,
+    # the checks, and the merge floor are not consulted. What stays is what
+    # makes it that merge: one gh pr merge of that PR, in this repository,
+    # pinned to that head.
+    go_ahead=no; go_ahead_note=""
+    # A session without an id has no directory of its own to keep a go-ahead in.
+    [ -n "$session" ] || return 0
+    # The PR number is the word straight after `merge`, the form the docs
+    # give. Read from anywhere else it could be an option's value.
+    number=$(printf '%s' "$merge" | awk -F'\t' '{ if ($1 == "gh" && $2 == "pr" && $3 == "merge") print $4; else for (k = 4; k <= NF; k++) if (substr($k, 1, 1) != "-") { print $k; exit } }')
+    case "$number" in ""|*[!0-9]*) return 0 ;; esac
+    marker="$1/.spade/guard/$sid/human-merge-$number"
+    [ -f "$marker" ] || return 0
+    approved=$(head -n 1 "$marker" | awk '{print $1}')
+    [ "$(printf '%s\n' "$merges" | wc -l | tr -d ' ')" -eq 1 ] \
+        || deny "SPADE guard: one command may merge one PR. Run each merge on its own so the guard checks each one."
+    kind=$(printf '%s' "$merge" | awk -F'\t' '{ if ($1 == "gh" && $2 == "pr" && $3 == "merge") print "gh-pr"; else print "other" }')
+    [ "$kind" = gh-pr ] \
+        || deny "SPADE guard: a human go-ahead covers gh pr merge only. Use gh pr merge so the guard can check the PR."
+    view=$(cd "$1" && gh pr view "$number" --json headRefOid,isDraft 2>/dev/null)
+    head_sha=$(printf '%s' "$view" | jq -r '.headRefOid // empty' 2>/dev/null)
+    [ -n "$head_sha" ] || deny "SPADE guard: gh pr view $number returned nothing, so the PR's head is unknown. Unknown state denies."
+    if [ -z "$approved" ] || [ "$approved" != "$head_sha" ]; then
+        # A go-ahead for another head is no go-ahead. The ordinary checks
+        # decide, so a stale marker never blocks a merge they would allow,
+        # and any deny they give says why the go-ahead did not count.
+        go_ahead_note=" The human's go-ahead for PR $number ($marker) is for head ${approved:-none}, and the head is now $head_sha; a go-ahead covers one head, so ask the human again."
+        return 0
+    fi
+    [ "$(printf '%s' "$view" | jq -r '.isDraft')" = false ] \
+        || deny "SPADE guard: PR $number is a draft. Mark it ready in a separate command first; a go-ahead merges a PR that is ready."
+    # --auto queues the merge for later, and a later push could ride it.
+    auto=$(printf '%s' "$merge" | awk -F'\t' '{ for (k = 4; k <= NF; k++) if ($k == "--auto" || $k ~ /^--auto=/) { print "yes"; exit } }')
+    [ "$auto" != yes ] || deny "SPADE guard: a human go-ahead covers merging PR $number now, at head $head_sha. Drop --auto, which would merge whatever the head is later."
+    merge_command_checks "$number" "$head_sha"
+    go_ahead=yes
+}
+
 guard_merge() {
     # A deny names only a config this check read, never one an earlier check left behind.
-    deny_suffix=""
+    deny_suffix=""; go_ahead_note=""
     merges=$(printf '%s' "$segments" | merge_segment)
     [ -n "$merges" ] || return 0
     merge=$(printf '%s\n' "$merges" | head -n 1)
@@ -1117,6 +1203,8 @@ guard_merge() {
                 repo="$project_dir"
             fi ;;
     esac
+    human_go_ahead "$repo"
+    [ "$go_ahead" = yes ] && return 0
     config="$repo/.spade/config"
     # Every deny from here on depends on this config, so it names it.
     deny_suffix=" (read $config)"
@@ -1156,38 +1244,7 @@ guard_merge() {
             || deny "SPADE guard: the recorded Evaluate for PR $number at $reviewed is PARTIAL. PARTIAL merges under on-green only when autonomy.deliver.merge_partial is true in .spade/config." ;;
         *) deny "SPADE guard: the recorded Evaluate for PR $number at $reviewed is '${verdict:-none}', not PASS or PARTIAL. Only a PASS verdict (or PARTIAL, when autonomy.deliver.merge_partial is true) on the current head merges under on-green." ;;
     esac
-    pinned=$(printf '%s' "$merge" | awk -F'\t' -v sha="$head_sha" '
-        {
-            for (k = 4; k <= NF; k++) {
-                if ($k == "--match-head-commit" && $(k + 1) == sha) { print "ok"; exit }
-                if ($k == "--match-head-commit=" sha) { print "ok"; exit }
-            }
-        }
-    ')
-    pins=$(printf '%s' "$merge" | awk -F'\t' '{ n = 0; for (k = 4; k <= NF; k++) if ($k == "--match-head-commit" || $k ~ /^--match-head-commit=/) n++; print n }')
-    # Every check above read the target repository, so a merge aimed anywhere
-    # else would be checked against the wrong PR. Besides -R, --repo, and a PR
-    # URL, the environment can aim gh elsewhere: GH_REPO and GH_HOST name
-    # another repository or host, and GIT_DIR or GIT_WORK_TREE another
-    # checkout. An assignment anywhere in the command counts, and so does the
-    # bare name, which export, read, or printf -v can set. There is no
-    # exemption for `unset` or `env -u`: a positional one was forgeable, and
-    # failing closed on a rare remedy costs little.
-    elsewhere=$(printf '%s' "$segments" | awk -F'\t' "$guard_awk_lib"'
-        {
-            for (k = 2; k <= NF; k++) {
-                t = w(k)
-                if (t == "-R" || t == "--repo" || t ~ /^(-R|--repo=)./ || t ~ /^(GH_REPO|GH_HOST|GIT_DIR|GIT_WORK_TREE)\+?=/ || t ~ /\/pull\//) { print "yes"; exit }
-                if (t ~ /^(GH_REPO|GH_HOST|GIT_DIR|GIT_WORK_TREE)$/) { print "yes"; exit }
-            }
-        }
-    ')
-    [ "$elsewhere" != yes ] || deny "SPADE guard: on-green merges only the target repository's own PR by number; drop -R, --repo, GH_REPO, or a PR URL, and leave GH_HOST, GIT_DIR, and GIT_WORK_TREE unset."
-    admin=$(printf '%s' "$merge" | awk -F'\t' '{ for (k = 4; k <= NF; k++) if ($k == "--admin") { print "yes"; exit } }')
-    [ "$admin" != yes ] || deny "SPADE guard: --admin bypasses branch protection, so it never merges under on-green."
-    [ "$pins" = 1 ] || deny "SPADE guard: pin the merge exactly once with --match-head-commit; a repeated pin is ambiguous."
-    [ "$pinned" = ok ] \
-        || deny "SPADE guard: pin the merge to the reviewed head with a literal SHA the guard can read: gh pr merge $number --match-head-commit $head_sha ..."
+    merge_command_checks "$number" "$head_sha"
     guard_merge_floor "$number" "$(printf '%s' "$view" | jq -r '.changedFiles // empty')"
 }
 
