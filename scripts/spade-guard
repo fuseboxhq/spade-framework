@@ -1116,8 +1116,8 @@ merge_command_checks() {
         }
     ')
     [ "$elsewhere" != yes ] || deny "SPADE guard: on-green merges only the target repository's own PR by number; drop -R, --repo, GH_REPO, or a PR URL, and leave GH_HOST, GIT_DIR, and GIT_WORK_TREE unset."
-    admin=$(printf '%s' "$merge" | awk -F'\t' '{ for (k = 4; k <= NF; k++) if ($k == "--admin") { print "yes"; exit } }')
-    [ "$admin" != yes ] || deny "SPADE guard: --admin bypasses branch protection, so it never merges under on-green."
+    admin=$(printf '%s' "$merge" | awk -F'\t' '{ for (k = 4; k <= NF; k++) if ($k == "--admin" || $k ~ /^--admin=/) { print "yes"; exit } }')
+    [ "$admin" != yes ] || deny "SPADE guard: --admin bypasses branch protection, so the guard never lets an agent use it."
     [ "$pins" = 1 ] || deny "SPADE guard: pin the merge exactly once with --match-head-commit; a repeated pin is ambiguous."
     [ "$pinned" = ok ] \
         || deny "SPADE guard: pin the merge to the reviewed head with a literal SHA the guard can read: gh pr merge $1 --match-head-commit $2 ..."
@@ -1125,9 +1125,10 @@ merge_command_checks() {
 
 human_go_ahead() {
     # Arguments: target repository. Sets go_ahead=yes when the human's
-    # recorded go-ahead covers this merge, denies when a go-ahead exists but
-    # the command or the head does not match it, and otherwise leaves
-    # go_ahead=no for the ordinary policy checks.
+    # recorded go-ahead covers this merge, and denies when a go-ahead for the
+    # current head exists but the command does not fit it. With no go-ahead,
+    # or one for an older head, it leaves go_ahead=no for the ordinary
+    # policy checks.
     #
     # The marker is .spade/guard/<session>/human-merge-<pr> in the target
     # repository, one line starting with the head SHA the human approved. The

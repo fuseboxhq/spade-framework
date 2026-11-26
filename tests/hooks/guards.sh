@@ -369,6 +369,7 @@ expect_deny "on-green, --repo elsewhere" "$(GH_STUB_VIEW="$green" run_guard "$(p
 expect_deny "on-green, GH_REPO prefix" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"GH_REPO=other/repo gh pr merge 41 --squash --match-head-commit abc123"}')")"
 expect_deny "on-green, PR URL" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge https://github.com/other/repo/pull/41 --squash --match-head-commit abc123"}')")"
 expect_deny "on-green, --admin" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --admin --match-head-commit abc123"}')")"
+expect_deny "on-green, --admin=true" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --admin=true --match-head-commit abc123"}')")"
 expect_deny "on-green, pin repeated with another head" "$(GH_STUB_VIEW="$green" run_guard "$(pre_tool Bash '{"command":"gh pr merge 41 --squash --match-head-commit abc123 --match-head-commit def456"}')")"
 expect_deny "on-green, glab merge unsupported" "$(run_guard "$(pre_tool Bash '{"command":"glab mr merge 7"}')")"
 
@@ -1266,6 +1267,7 @@ expect_deny_reason "go-ahead, unpinned" "pin the merge exactly once" "$(green_me
 expect_deny_reason "go-ahead, pinned to another head" "pin the merge to the reviewed head" "$(green_merge "$hg" "gh pr merge 41 --squash --match-head-commit def456")"
 expect_deny_reason "go-ahead, pinned twice" "pin the merge exactly once" "$(green_merge "$hg" "gh pr merge 41 --match-head-commit abc123 --match-head-commit abc123")"
 expect_deny_reason "go-ahead, --admin" "--admin bypasses branch protection" "$(green_merge "$hg" "gh pr merge 41 --admin $pin")"
+expect_deny_reason "go-ahead, --admin=true" "--admin bypasses branch protection" "$(green_merge "$hg" "gh pr merge 41 --admin=true $pin")"
 for elsewhere_form in "gh pr merge 41 -R other/repo $pin" \
                       "gh pr merge 41 --repo other/repo $pin" \
                       "GH_REPO=other/repo gh pr merge 41 $pin" \
