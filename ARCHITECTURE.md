@@ -31,7 +31,7 @@ Every projected skill carries a copy of `docs/FRAMEWORK.md` at `references/FRAME
 - **Prose for judgement, guards for invariants.** A rule that needs no judgement goes in `bin/spade-guard` with a case in `tests/hooks/guards.sh`; everything else is prose. The guard is a path-shaped approximation of the security-sensitive surface in FRAMEWORK.md, so change both together.
 - **Say it once.** Skills link to FRAMEWORK.md sections instead of restating them; the authoring lint fails on a `§` reference that does not resolve.
 - **Tests check structure, not wording.** v6 deleted the literal-prose contract tests because they locked sediment in place. Behaviour is checked with the manual evals in `tests/evals/`.
-- **Codex has no hooks.** On Codex, and anywhere `.spade/guard/<session>/live` is missing, the stricter model applies: any security category halts before code and the human merges.
+- **Codex has no hooks.** On Codex, and anywhere guards are not live (FRAMEWORK.md § Mechanical guards), the stricter model applies: any security category halts before code and the human merges.
 - **Windows migrations need Git Bash or WSL.** `spade-marker-replace` and `spade-lifecycle` are bash-only; only `setup` has a PowerShell twin.
 - **Pandoc is optional.** `bin/spade-render` needs pandoc 3.0+ and exits 2 without it; Markdown stays canonical.
 - **Codex research isolation** uses `codex exec --sandbox read-only --ignore-user-config --ephemeral`; if that contract is unavailable the researcher fails closed.

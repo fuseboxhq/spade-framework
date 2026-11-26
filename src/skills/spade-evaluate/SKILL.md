@@ -47,10 +47,10 @@ Apply `/unslop` to the prose, not to commands, SHAs, or the table values.
 
 ## Recording the verdict
 
-Record the verdict yourself only when guards are live (`.spade/guard/$CLAUDE_CODE_SESSION_ID/live` exists), every row is met with evidence fresh on the reviewed head, and no blocking review finding is open.
+Record the verdict yourself only when guards are live for the PR's working folder (`references/FRAMEWORK.md` § Mechanical guards, Guards live or not), every row is met with evidence fresh on the reviewed head, and no blocking review finding is open.
 Open includes a finding with no disposition, an escalated finding, a contest that cites no evidence, and any lens the report lists as `not run` (`references/FRAMEWORK.md` § Review).
 A row may not read met where the Delivery Review answered that criterion "not met", unless the finding behind it carries a fixed or contested disposition.
-When you record it and the work has a PR, write `.spade/guard/reviewed-head-<pr>` through `{{SPADE_SHELL}}` as one line, `<reviewed head sha> <VERDICT>`, so the merge guard can check it (`references/FRAMEWORK.md` § Mechanical guards).
+When you record it and the work has a PR, write `.spade/guard/reviewed-head-<pr>` through `{{SPADE_SHELL}}` as one line, `<reviewed head sha> <VERDICT>`, in the session repository for the PR's working folder, so the merge guard can check it (`references/FRAMEWORK.md` § Mechanical guards).
 
 Otherwise ask the human through `{{SPADE_ASK_USER}}`: *PASS*, *PARTIAL*, or *FAIL*, with your recommendation first and a plain statement when the evidence does not support PASS.
 When the human records a verdict for a PR, write the same `reviewed-head-<pr>` line with their verdict, so a PARTIAL can merge under `on-green` when the project sets `autonomy.deliver.merge_partial: true`.
